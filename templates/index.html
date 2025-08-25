@@ -29,6 +29,7 @@ button{color:var(--text);background:var(--card);border:1px solid #e5e7eb}
 canvas{width:100% !important;height:300px !important}
 @media(min-width:768px){canvas{height:360px !important}}
 .status{margin:8px 4px;color:var(--muted)}
+.range{margin:6px 4px;color:var(--muted);font-size:13px}
 /* KPI cards */
 .kpis{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
 @media(min-width:768px){.kpis{grid-template-columns:repeat(4,1fr)}}
@@ -38,19 +39,22 @@ canvas{width:100% !important;height:300px !important}
 .kpi .sub{font-size:12px;color:var(--muted);margin-top:4px}
 .up{color:#16a34a}
 .down{color:#ef4444}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 </style>
 </head>
 <body>
 <div class="header">
   <div class="toolbar">
     <select id="deviceSelect" onchange="loadData(currentPeriod)"></select>
-    <button class="period-btn" data-period="day" onclick="loadData('day')">今天</button>
+    <button class="period-btn" id="dateBtn" onclick="openDatePicker()">日期</button>
+    <input type="date" id="datePicker" class="sr-only" onchange="onDateChange(this.value)" oninput="onDateChange(this.value)" />
     <button class="period-btn" data-period="week" onclick="loadData('week')">近7天</button>
     <button class="period-btn" data-period="month" onclick="loadData('month')">近30天</button>
-    <button class="primary" onclick="fetchData()">抓取</button>
+    <button onclick="fetchData()">抓取</button>
   </div>
 </div>
 <div class="container">
+  <p id="rangeIndicator" class="range"></p>
   <div class="kpis">
     <div class="kpi">
       <div class="label">当前余额</div>
@@ -74,11 +78,21 @@ canvas{width:100% !important;height:300px !important}
     </div>
   </div>
   <div class="section">
-    <div class="title">趋势</div>
+    <div class="title">用电量趋势</div>
     <div class="card">
-      <div class="chart-scroll" id="chartScroll">
-        <div class="chart-inner" id="chartInner">
-          <canvas id="combinedChart"></canvas>
+      <div class="chart-scroll" id="balanceScroll">
+        <div class="chart-inner" id="balanceChartInner">
+          <canvas id="balanceLineChart"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="section">
+    <div class="title">余额</div>
+    <div class="card">
+      <div class="chart-scroll" id="usageScroll">
+        <div class="chart-inner" id="usageChartInner">
+          <canvas id="usageBarChart"></canvas>
         </div>
       </div>
     </div>
@@ -88,12 +102,32 @@ canvas{width:100% !important;height:300px !important}
 <script>
 let devices = [];
 const isMobile = window.matchMedia('(max-width: 768px)').matches;
-let combinedChart;
+let usageLineChart, balanceBarChart;
 let currentPeriod = 'day';
+let currentDate = new Date().toISOString().slice(0,10);
 
 function populateDevices(){
   const sel = document.getElementById('deviceSelect');
   sel.innerHTML = devices.map(d=>`<option value="${d.id}">${d.name}</option>`).join('');
+}
+function onDateChange(v){
+  currentPeriod = 'day';
+  // 如果选择与当前相同日期，也应触发刷新（处理某些浏览器只触发 change 的问题）
+  const todayStr = new Date().toISOString().slice(0,10);
+  currentDate = v || todayStr;
+  const dp = document.getElementById('datePicker');
+  if(!v){ dp.value = todayStr; }
+  // 日期模式下清除按钮高亮
+  document.querySelectorAll('.period-btn').forEach(btn=>btn.classList.remove('active'));
+  // 强制刷新
+  loadData('day');
+}
+
+function openDatePicker(){
+  const dp = document.getElementById('datePicker');
+  // 默认今天
+  if(!dp.value) dp.value = new Date().toISOString().slice(0,10);
+  dp.showPicker ? dp.showPicker() : dp.click();
 }
 
 const commonOptions = {
@@ -131,45 +165,43 @@ const commonOptions = {
   }
 };
 
-function renderCombinedChart(labels, balances, usage){
-  // 依据数据点数量动态设置画布宽度，实现左右滑动
-  const inner = document.getElementById('chartInner');
-  const perPoint = isMobile ? 36 : 24; // 每个数据点占用像素，越大越不拥挤
-  const minWidth = Math.max(inner.clientWidth, labels.length * perPoint + 80);
-  inner.style.width = minWidth + 'px';
-
-  const ctx = document.getElementById('combinedChart').getContext('2d');
-  if(combinedChart) combinedChart.destroy();
-  combinedChart = new Chart(ctx,{
-    data:{
-      labels,
-      datasets:[
-        { type:'bar', label:'用电量', yAxisID:'yUsage', data:usage,
-          backgroundColor:'rgba(239,68,68,0.65)', borderColor:'rgba(239,68,68,1)', borderWidth:1,
-          borderRadius:6, maxBarThickness:isMobile?18:32, categoryPercentage:0.5, barPercentage:0.8 },
-        { type:'line', label:'余额', yAxisID:'yBalance', data:balances,
-          borderColor:'rgba(14,165,233,1)', backgroundColor:'rgba(14,165,233,0.2)',
-          tension:0.25, fill:true, pointRadius:0, borderWidth:2 }
-      ]
-    },
+function renderSeparatedCharts(labels, balances, usage){
+  const perPoint = isMobile ? 36 : 24;
+  // 用电量折线（上）
+  const inner1 = document.getElementById('balanceChartInner');
+  inner1.style.width = Math.max(inner1.clientWidth, labels.length * perPoint + 80) + 'px';
+  const ctx1 = document.getElementById('balanceLineChart').getContext('2d');
+  if(usageLineChart) usageLineChart.destroy();
+  usageLineChart = new Chart(ctx1, {
+    type:'line',
+    data:{ labels, datasets:[{ label:'用电量', data:usage, borderColor:'rgba(239,68,68,1)', backgroundColor:'rgba(239,68,68,0.15)', tension:0.25, fill:true, pointRadius:0, borderWidth:2 }] },
     options:{
       ...commonOptions,
       plugins:{
         ...commonOptions.plugins,
         datalabels:{
           ...commonOptions.plugins.datalabels,
-          display:(ctx)=> ctx.dataset && ctx.dataset.yAxisID==='yUsage',
-          formatter:(v)=> Number(v).toFixed(2)
+          display:true,
+          align:'top',
+          anchor:'end',
+          offset:2,
+          formatter:(v)=>Number(v).toFixed(2)
         }
       },
-      scales:{
-        yBalance:{ position:'left', beginAtZero:true, grid:{ color:'rgba(0,0,0,0.06)' },
-          ticks:{ callback:(v)=>Number(v).toFixed(2), font:{ size:isMobile?11:12 } } },
-        yUsage:{ position:'right', beginAtZero:true, grid:{ display:false },
-          ticks:{ callback:(v)=>Number(v).toFixed(2), font:{ size:isMobile?11:12 } } },
-        x: { ...commonOptions.scales.x, ticks: { ...commonOptions.scales.x.ticks, maxRotation: 0, autoSkip: false } }
-      }
+      scales:{ y:{ beginAtZero:true, ticks:{ callback:(v)=>Number(v).toFixed(2) } }, x:{ ...commonOptions.scales.x, ticks:{ ...commonOptions.scales.x.ticks, autoSkip:false } } }
     },
+    plugins:[ChartDataLabels]
+  });
+
+  // 余额柱状（下）
+  const inner2 = document.getElementById('usageChartInner');
+  inner2.style.width = Math.max(inner2.clientWidth, labels.length * perPoint + 80) + 'px';
+  const ctx2 = document.getElementById('usageBarChart').getContext('2d');
+  if(balanceBarChart) balanceBarChart.destroy();
+  balanceBarChart = new Chart(ctx2, {
+    type:'bar',
+    data:{ labels, datasets:[{ label:'余额', data:balances, backgroundColor:'rgba(14,165,233,0.65)', borderColor:'rgba(14,165,233,1)', borderWidth:1, borderRadius:6, maxBarThickness:isMobile?18:32, categoryPercentage:0.5, barPercentage:0.8 }] },
+    options:{ ...commonOptions, plugins:{ ...commonOptions.plugins, datalabels:{ ...commonOptions.plugins.datalabels, display:true, formatter:(v)=>Number(v).toFixed(2) } }, scales:{ y:{ beginAtZero:true, ticks:{ callback:(v)=>Number(v).toFixed(2) } }, x:{ ...commonOptions.scales.x, ticks:{ ...commonOptions.scales.x.ticks, autoSkip:false } } } },
     plugins:[ChartDataLabels]
   });
 }
@@ -230,21 +262,43 @@ function loadData(period){
   });
   const deviceId = document.getElementById('deviceSelect').value;
   Promise.all([
-    fetch(`/data?period=${period}&device_id=${deviceId}`).then(r=>r.json()),
+    fetch(`/data?period=${period}&device_id=${deviceId}${period==='day' ? `&date=${encodeURIComponent(currentDate)}`:''}`).then(r=>r.json()),
     fetch(`/data?period=day&device_id=${deviceId}`).then(r=>r.json()),
     fetch(`/data?period=week&device_id=${deviceId}`).then(r=>r.json())
   ]).then(([chartRes, dayRes, weekRes])=>{
     if(chartRes.labels.length===0) document.getElementById('status').innerText='暂无数据，先抓取或稍后再试';
-    renderCombinedChart(chartRes.labels, chartRes.balances, chartRes.usage);
+    renderSeparatedCharts(chartRes.labels, chartRes.balances, chartRes.usage);
+    // 显示当前选择的日期/时间段
+    const rangeEl = document.getElementById('rangeIndicator');
+    if(period==='day'){
+      rangeEl.textContent = `当前日期：${currentDate}`;
+    } else if(period==='week'){
+      const end = new Date();
+      const start = new Date(); start.setDate(end.getDate()-6);
+      rangeEl.textContent = `时间段：${start.toISOString().slice(0,10)} ~ ${end.toISOString().slice(0,10)}`;
+    } else {
+      const end = new Date();
+      const start = new Date(); start.setDate(end.getDate()-29);
+      rangeEl.textContent = `时间段：${start.toISOString().slice(0,10)} ~ ${end.toISOString().slice(0,10)}`;
+    }
     updateKpis(dayRes, weekRes);
     // 更新用电/对比标签文案
     const labelEl = document.getElementById('kpi-usage-label');
-    labelEl.textContent = period==='day' ? '今日用电' : (period==='week' ? '近7天用电' : '近30天用电');
+    labelEl.textContent = period==='day' ? '当日用电' : (period==='week' ? '近7天用电' : '近30天用电');
     const compareLabel = document.getElementById('kpi-compare-label');
     compareLabel.textContent = period==='day' ? '较昨日' : '较上周期';
-    // 更新 KPI 数值为对应周期总用电
-    const totalUsage = (chartRes.usage||[]).reduce((a,b)=>a+Number(b||0),0);
-    document.getElementById('kpi-today').textContent = Number(totalUsage).toFixed(2);
+    // 更新 KPI 数值
+    if(period==='day'){
+      const arr = dayRes.balances||[];
+      const valid = arr.filter(v => v!==null && v!==undefined && !isNaN(Number(v)));
+      const first = valid.length ? Number(valid[0]) : null;
+      const last = valid.length ? Number(valid[valid.length-1]) : null;
+      const todayUsage = (first!=null && last!=null) ? Math.max(Number(first) - Number(last), 0) : 0;
+      document.getElementById('kpi-today').textContent = todayUsage.toFixed(2);
+    } else {
+      const totalUsage = (chartRes.usage||[]).reduce((a,b)=>a+Number(b||0),0);
+      document.getElementById('kpi-today').textContent = Number(totalUsage).toFixed(2);
+    }
   });
 }
 

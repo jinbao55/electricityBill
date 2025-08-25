@@ -79,7 +79,7 @@ def save_to_db(data):
 # -----------------------
 # 数据统计
 # -----------------------
-def get_statistics(period="day", device_id=None):
+def get_statistics(period="day", device_id=None, target_date=None):
     conn = pymysql.connect(**DB_CONFIG)
     cursor = conn.cursor(pymysql.cursors.DictCursor)
     now = now_cn()
@@ -92,41 +92,86 @@ def get_statistics(period="day", device_id=None):
         params.append(device_id)
 
     if period=="day":
-        start_time = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        sql = f"SELECT collected_at, remain FROM electricity_balance WHERE collected_at >= %s {where_clause} ORDER BY collected_at"
-        cursor.execute(sql,(start_time,*params))
+        if target_date:
+            try:
+                base = datetime.strptime(target_date, "%Y-%m-%d")
+            except Exception:
+                base = now
+            start_time = base.replace(hour=0, minute=0, second=0, microsecond=0)
+        else:
+            start_time = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        end_time = start_time + timedelta(days=1)
+        sql = f"SELECT collected_at, remain FROM electricity_balance WHERE collected_at >= %s AND collected_at < %s {where_clause} ORDER BY collected_at"
+        cursor.execute(sql,(start_time, end_time, *params))
         rows = cursor.fetchall()
-        hourly={}
+        # 取每小时最后一条余额
+        last_by_hour = { }
         for r in rows:
-            h=r['collected_at'].hour
-            hourly.setdefault(h, []).append(r['remain'])
+            h = r['collected_at'].hour
+            last_by_hour[h] = float(r['remain']) if r['remain'] is not None else None
         for h in range(24):
-            avg = sum(hourly[h])/len(hourly[h]) if h in hourly else 0
             labels.append(f"{h:02d}点")
-            balances.append(avg)
-        # 用电量
-        prev=None
-        for val in balances:
-            usage.append(max(prev-val,0) if prev is not None else 0)
-            prev=val
+            last_val = last_by_hour.get(h, None)
+            # 用 None 表示该小时无读数，避免前端把缺失当做 0
+            balances.append(last_val if last_val is not None else None)
+        # 用电量 = 上一小时最后余额 - 当前小时最后余额（负数按0）
+        for h in range(24):
+            if h == 0:
+                usage.append(0)
+            else:
+                prev_last = last_by_hour.get(h-1, None)
+                curr_last = last_by_hour.get(h, None)
+                if prev_last is not None and curr_last is not None:
+                    usage.append(max(prev_last - curr_last, 0))
+                else:
+                    usage.append(0)
     else:
         days = 7 if period=="week" else 30
-        start_time = now - timedelta(days=days-1)
-        sql = f"SELECT DATE(collected_at) AS d, remain FROM electricity_balance WHERE collected_at >= %s {where_clause} ORDER BY collected_at"
-        cursor.execute(sql,(start_time,*params))
+        start_time = (now - timedelta(days=days-1)).replace(hour=0, minute=0, second=0, microsecond=0)
+        end_time = now.replace(hour=23, minute=59, second=59, microsecond=999999)
+        sql = f"SELECT collected_at, remain FROM electricity_balance WHERE collected_at >= %s AND collected_at <= %s {where_clause} ORDER BY collected_at"
+        cursor.execute(sql,(start_time, end_time, *params))
         rows = cursor.fetchall()
-        daily={}
+
+        # 按天聚合：
+        # balances[day] = 当天最后一条余额
+        # usage[day] = 当天所有相邻读数的下降量之和（忽略上升=充值）
+        last_by_day = {}
+        usage_by_day = {}
+        prev_ts = None
+        prev_remain = None
+        prev_day = None
         for r in rows:
-            d=str(r['d'])
-            daily.setdefault(d, []).append(r['remain'])
-        for d in sorted(daily.keys()):
-            avg=sum(daily[d])/len(daily[d])
+            ts = r['collected_at']
+            rem = float(r['remain']) if r['remain'] is not None else None
+            if rem is None:
+                continue
+            day_key = str(ts.date())
+            # 更新当日最后余额
+            last_by_day[day_key] = rem
+            # 计算当日内部下降
+            if prev_ts is not None:
+                cur_day = day_key
+                if prev_day == cur_day and prev_remain is not None:
+                    drop = prev_remain - rem
+                    if drop > 0:
+                        usage_by_day[cur_day] = usage_by_day.get(cur_day, 0.0) + drop
+            prev_ts = ts
+            prev_remain = rem
+            prev_day = day_key
+
+        # 构建连续日期序列并填充
+        cur_date = start_time.date()
+        end_date = now.date()
+        ordered_days = []
+        while cur_date <= end_date:
+            ordered_days.append(str(cur_date))
+            cur_date = cur_date + timedelta(days=1)
+
+        for d in ordered_days:
             labels.append(d)
-            balances.append(avg)
-        prev=None
-        for val in balances:
-            usage.append(max(prev-val,0) if prev is not None else 0)
-            prev=val
+            balances.append(last_by_day.get(d, None))
+            usage.append(float(usage_by_day.get(d, 0.0)))
 
     cursor.close()
     conn.close()
@@ -164,7 +209,8 @@ def index():
 def data():
     period = request.args.get("period","day")
     device_id = request.args.get("device_id")
-    labels, balances, usage = get_statistics(period, device_id)
+    target_date = request.args.get("date")
+    labels, balances, usage = get_statistics(period, device_id, target_date)
     return {"labels":labels, "balances":balances, "usage":usage}
 
 def _get_last_balance_for_date(conn, device_id, date_obj):
