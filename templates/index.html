@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>电表统计</title>
 <link rel="preconnect" href="https://cdn.jsdelivr.net">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+<script src="https://cdn.jsdelivr.net/npm/flatpickr/dist/l10n/zh.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels"></script>
 <style>
@@ -13,12 +16,82 @@
 }
 *{box-sizing:border-box}
 html,body{height:100%}
-body{font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:0;background:var(--bg);color:var(--text)}
-.header{position:sticky;top:0;background:var(--bg);padding:10px 12px;z-index:10}
-.toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-select,button{appearance:none;border:1px solid #e5e7eb;background:var(--card);padding:8px 10px;border-radius:10px;font-size:15px}
-button{color:var(--text);background:var(--card);border:1px solid #e5e7eb}
+body { font-family: sans-serif; margin:0; background:#f9f9f9; color:#111; }
+header {
+  padding:10px;
+  background: linear-gradient(90deg, #4a90e2, #357ab8);
+  color:#fff;
+  display:flex;
+  align-items:center;
+  flex-wrap:wrap;
+  box-shadow:0 2px 6px rgba(0,0,0,0.15);
+}
+
+header select,
+header input {
+  margin-left:10px;
+  padding:6px 10px;
+  border-radius:6px;
+  border:none;
+  background:#fff;
+  color:#333;
+  box-shadow:0 1px 3px rgba(0,0,0,0.1);
+  font-size:14px;
+  transition: all 0.2s ease;
+}
+header select:focus,
+header input:focus {
+  outline:none;
+  box-shadow:0 0 0 2px rgba(74,144,226,0.4);
+}
+
+.toolbar {
+  display:flex;
+  gap:10px;
+  margin-left:auto;
+  flex-wrap:wrap;
+}
+
+.period-btn {
+  padding:6px 14px;
+  border:none;
+  border-radius:20px;
+  cursor:pointer;
+  background:#fff;
+  color:#4a90e2;
+  font-size:14px;
+  font-weight:500;
+  box-shadow:0 1px 3px rgba(0,0,0,0.1);
+  transition: all 0.25s ease;
+}
+.period-btn:hover {
+  background:#f0f4fa;
+}
+
+button {
+  cursor:pointer;
+}
+
+/* 抓取按钮单独样式 */
+.fetch-btn {
+  padding:6px 18px;
+  border:none;
+  border-radius:20px;
+  cursor:pointer;
+  background:#ff9800;   /* 橙色主按钮 */
+  color:#fff;
+  font-size:14px;
+  font-weight:600;
+  box-shadow:0 2px 6px rgba(0,0,0,0.2);
+  transition: all 0.25s ease;
+}
+.fetch-btn:hover {
+  background:#e68900;
+  transform:scale(1.05);
+}
+
 .period-btn.active{background:var(--primary);color:#fff;border-color:var(--primary)}
+
 .primary{background:var(--primary);color:#fff;border:none}
 .container{padding:12px}
 .section{margin-bottom:14px}
@@ -39,20 +112,69 @@ canvas{width:100% !important;height:300px !important}
 .kpi .sub{font-size:12px;color:var(--muted);margin-top:4px}
 .up{color:#16a34a}
 .down{color:#ef4444}
-.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+/* 手机端 header 响应式 */
+@media(max-width:768px){
+  header {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 10px 8px; /* 增加左右 padding */
+    gap: 6px; /* header 内元素上下间距 */
+  }
+
+  header span {
+    font-size: 16px;
+    margin-bottom: 6px;
+  }
+
+  .header-row {
+    display: flex;
+    gap: 6px;
+    width: 100%;
+  }
+
+  .header-row select,
+  .header-row input {
+    flex: 1;
+    min-width: 0;
+    padding: 6px 8px; /* 减小高度，避免拥挤 */
+    font-size: 14px;
+  }
+
+  .toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    width: 100%;
+    margin-top: 4px; /* 按钮行与上方间距 */
+  }
+
+  .toolbar button {
+    flex: 1 1 auto;
+    min-width: 80px;
+    padding: 6px 0; /* 减少按钮高度 */
+    font-size: 14px;
+  }
+}
+
 </style>
 </head>
 <body>
-<div class="header">
-  <div class="toolbar">
+
+<header>
+  <span>电表可视化</span>
+  <div class="header-row">
     <select id="deviceSelect" onchange="loadData(currentPeriod)"></select>
-    <button class="period-btn" id="dateBtn" onclick="openDatePicker()">日期</button>
-    <input type="date" id="datePicker" class="sr-only" onchange="onDateChange(this.value)" oninput="onDateChange(this.value)" />
+    <input type="text" id="datePicker" placeholder="选择日期">
+  </div>
+  <div class="toolbar">
+    <button class="period-btn" id="todayBtn" data-period="day" onclick="showToday()">今日</button>
     <button class="period-btn" data-period="week" onclick="loadData('week')">近7天</button>
     <button class="period-btn" data-period="month" onclick="loadData('month')">近30天</button>
-    <button onclick="fetchData()">抓取</button>
+    <button class="fetch-btn" onclick="fetchData()">抓取</button>
+
   </div>
-</div>
+</header>
+
 <div class="container">
   <p id="rangeIndicator" class="range"></p>
   <div class="kpis">
@@ -99,224 +221,347 @@ canvas{width:100% !important;height:300px !important}
   </div>
   <p id="status" class="status"></p>
 </div>
+
 <script>
+/* 全局变量 */
 let devices = [];
 const isMobile = window.matchMedia('(max-width: 768px)').matches;
-let usageLineChart, balanceBarChart;
+let usageLineChart = null, balanceBarChart = null;
 let currentPeriod = 'day';
 let currentDate = new Date().toISOString().slice(0,10);
+let datePicker = null;
 
-function populateDevices(){
-  const sel = document.getElementById('deviceSelect');
-  sel.innerHTML = devices.map(d=>`<option value="${d.id}">${d.name}</option>`).join('');
-}
-function onDateChange(v){
-  currentPeriod = 'day';
-  // 如果选择与当前相同日期，也应触发刷新（处理某些浏览器只触发 change 的问题）
-  const todayStr = new Date().toISOString().slice(0,10);
-  currentDate = v || todayStr;
-  const dp = document.getElementById('datePicker');
-  if(!v){ dp.value = todayStr; }
-  // 日期模式下清除按钮高亮
-  document.querySelectorAll('.period-btn').forEach(btn=>btn.classList.remove('active'));
-  // 强制刷新
-  loadData('day');
+/* 注册 ChartDataLabels（如果被加载） */
+if (window.Chart && window.ChartDataLabels) {
+  Chart.register(ChartDataLabels);
 }
 
-function openDatePicker(){
-  const dp = document.getElementById('datePicker');
-  // 默认今天
-  if(!dp.value) dp.value = new Date().toISOString().slice(0,10);
-  dp.showPicker ? dp.showPicker() : dp.click();
-}
+/* 小工具：安全格式化数字 */
+function fmt(n){ return Number(n ?? 0).toFixed(2); }
 
-const commonOptions = {
-  responsive:true,
-  maintainAspectRatio:false,
-  layout:{padding:{top:16,right:8,bottom:0,left:8}},
-  interaction:{mode:'index',intersect:false},
-  plugins:{
-    legend:{display:false},
-    tooltip:{
-      enabled:true,
-      callbacks:{label:(ctx)=>`${ctx.dataset.label}: ${Number(ctx.parsed.y??ctx.raw).toFixed(2)}`},
-      bodyFont:{size:isMobile?12:13},
-      titleFont:{size:isMobile?12:13}
-    },
-    datalabels:{
-      display:(ctx)=>{
-        // 仅在移动端显示每隔N个柱的标签，避免重叠
-        const idx = ctx.dataIndex || 0;
-        const total = ctx.chart.data.labels?.length || 0;
-        const step = total>20 ? 5 : total>12 ? 3 : 2;
-        return (idx % step)===0;
-      },
-      formatter:(v)=>Number(v).toFixed(2),
-      color:'#111',
-      backgroundColor:'rgba(255,255,255,0.85)',
-      borderRadius:6,
-      padding:{top:2,right:4,bottom:2,left:4},
-      anchor:'end',align:'end',offset:-2,clamp:true
+/* 安全将后端的 ISO 日期字符串转换为 "月-日"（避免 new Date 在不同浏览器的兼容问题） */
+function shortLabelFromISO(d){
+  if(!d) return d;
+  if(typeof d !== 'string') d = String(d);
+  if(d.includes('-')){
+    const parts = d.split('-');
+    if(parts.length >= 3){
+      return `${Number(parts[1])}-${Number(parts[2])}`;
     }
-  },
-  scales:{
-    y:{beginAtZero:true,grid:{color:'rgba(0,0,0,0.06)'},ticks:{callback:(v)=>Number(v).toFixed(2),font:{size:isMobile?11:12}}},
-    x:{grid:{display:false},ticks:{maxRotation:0,autoSkip:true,autoSkipPadding:8,maxTicksLimit:isMobile?6:12,font:{size:isMobile?10:12}}}
   }
-};
+  // 回退解析（尽量不依赖）
+  const dt = new Date(d);
+  if(!isNaN(dt.getTime())){
+    return `${dt.getMonth()+1}-${dt.getDate()}`;
+  }
+  return d;
+}
 
-function renderSeparatedCharts(labels, balances, usage){
+/* 渲染两个分开的图表：第一个是用电量（折线），第二个是余额（柱/折线） */
+/* labels: array of 'YYYY-MM-DD'；balances: array；usage: array */
+function renderSeparatedCharts(labels = [], balances = [], usage = []){
+  // 防御式：确保为数组
+  labels = Array.isArray(labels) ? labels : [];
+  balances = Array.isArray(balances) ? balances : [];
+  usage = Array.isArray(usage) ? usage : [];
+
+  // 仅用于显示的短标签（只显示月-日）
+  const displayLabels = labels.map(d => shortLabelFromISO(d));
+
   const perPoint = isMobile ? 36 : 24;
-  // 用电量折线（上）
   const inner1 = document.getElementById('balanceChartInner');
-  inner1.style.width = Math.max(inner1.clientWidth, labels.length * perPoint + 80) + 'px';
+  inner1.style.width = Math.max(inner1.clientWidth, displayLabels.length * perPoint + 80) + 'px';
   const ctx1 = document.getElementById('balanceLineChart').getContext('2d');
   if(usageLineChart) usageLineChart.destroy();
   usageLineChart = new Chart(ctx1, {
     type:'line',
-    data:{ labels, datasets:[{ label:'用电量', data:usage, borderColor:'rgba(239,68,68,1)', backgroundColor:'rgba(239,68,68,0.15)', tension:0.25, fill:true, pointRadius:0, borderWidth:2 }] },
+    data:{ labels: displayLabels, datasets:[{ label:'用电量', data:usage, borderColor:'rgba(239,68,68,1)', backgroundColor:'rgba(239,68,68,0.15)', tension:0.25, fill:true, pointRadius:0, borderWidth:2 }] },
     options:{
-      ...commonOptions,
+      responsive:true,
+      maintainAspectRatio:false,
+      layout:{padding:{top:16,right:8,bottom:0,left:8}},
+      interaction:{mode:'index',intersect:false},
       plugins:{
-        ...commonOptions.plugins,
+        legend:{display:false},
+        tooltip:{ enabled:true, callbacks:{label:(ctx)=>`${ctx.dataset.label}: ${Number(ctx.parsed.y??ctx.raw).toFixed(2)}` } },
         datalabels:{
-          ...commonOptions.plugins.datalabels,
-          display:true,
-          align:'top',
-          anchor:'end',
-          offset:2,
-          formatter:(v)=>Number(v).toFixed(2)
+          display: true,
+          formatter:(v)=>Number(v).toFixed(2),
+          color:'#111',
+          backgroundColor:'rgba(255,255,255,0.85)',
+          borderRadius:6,
+          padding:{top:2,right:4,bottom:2,left:4},
+          anchor:'end',align:'end',offset: -2,clamp:true
         }
       },
-      scales:{ y:{ beginAtZero:true, ticks:{ callback:(v)=>Number(v).toFixed(2) } }, x:{ ...commonOptions.scales.x, ticks:{ ...commonOptions.scales.x.ticks, autoSkip:false } } }
+      scales:{
+        y:{ beginAtZero:true, grid:{color:'rgba(0,0,0,0.06)'}, ticks:{callback:(v)=>Number(v).toFixed(2)} },
+        x:{ grid:{display:false}, ticks:{ autoSkip:false, maxRotation:0 } }
+      }
     },
-    plugins:[ChartDataLabels]
+    plugins: [ ChartDataLabels ]
   });
 
-  // 余额柱状（下）
   const inner2 = document.getElementById('usageChartInner');
-  inner2.style.width = Math.max(inner2.clientWidth, labels.length * perPoint + 80) + 'px';
+  inner2.style.width = Math.max(inner2.clientWidth, displayLabels.length * perPoint + 80) + 'px';
   const ctx2 = document.getElementById('usageBarChart').getContext('2d');
   if(balanceBarChart) balanceBarChart.destroy();
   balanceBarChart = new Chart(ctx2, {
     type:'bar',
-    data:{ labels, datasets:[{ label:'余额', data:balances, backgroundColor:'rgba(14,165,233,0.65)', borderColor:'rgba(14,165,233,1)', borderWidth:1, borderRadius:6, maxBarThickness:isMobile?18:32, categoryPercentage:0.5, barPercentage:0.8 }] },
-    options:{ ...commonOptions, plugins:{ ...commonOptions.plugins, datalabels:{ ...commonOptions.plugins.datalabels, display:true, formatter:(v)=>Number(v).toFixed(2) } }, scales:{ y:{ beginAtZero:true, ticks:{ callback:(v)=>Number(v).toFixed(2) } }, x:{ ...commonOptions.scales.x, ticks:{ ...commonOptions.scales.x.ticks, autoSkip:false } } } },
-    plugins:[ChartDataLabels]
+    data:{ labels: displayLabels, datasets:[{ label:'余额', data:balances, backgroundColor:'rgba(14,165,233,0.65)', borderColor:'rgba(14,165,233,1)', borderWidth:1, borderRadius:6, maxBarThickness:isMobile?18:32, categoryPercentage:0.5, barPercentage:0.8 }] },
+    options:{
+      responsive:true,
+      maintainAspectRatio:false,
+      layout:{padding:{top:16,right:8,bottom:0,left:8}},
+      interaction:{mode:'index',intersect:false},
+      plugins:{
+        legend:{display:false},
+        tooltip:{ enabled:true, callbacks:{label:(ctx)=>`${ctx.dataset.label}: ${Number(ctx.parsed.y??ctx.raw).toFixed(2)}` } },
+        datalabels:{
+          display:true,
+          formatter:(v)=>Number(v).toFixed(2),
+          color:'#111',
+          backgroundColor:'rgba(255,255,255,0.85)',
+          borderRadius:6,
+          padding:{top:2,right:4,bottom:2,left:4},
+          anchor:'end',align:'end',offset:-2,clamp:true
+        }
+      },
+      scales:{
+        y:{ beginAtZero:true, grid:{color:'rgba(0,0,0,0.06)'}, ticks:{callback:(v)=>Number(v).toFixed(2)} },
+        x:{ grid:{display:false}, ticks:{ autoSkip:false, maxRotation:0 } }
+      }
+    },
+    plugins: [ ChartDataLabels ]
   });
 }
 
-function updateKpis(dayData, weekData){
-  const fmt = (n)=>Number(n??0).toFixed(2);
-  // 通过后端 /kpi 获取所需基准数据
+/* 更新 KPI：优先使用 /kpi 接口字段；若字段缺失则回退到 dayData/weekData 的计算 */
+function updateKpis(dayData = {}, weekData = {}){
+  const fmtVal = (n)=>Number(n ?? 0).toFixed(2);
   const deviceId = document.getElementById('deviceSelect').value;
   fetch(`/kpi?device_id=${deviceId}`).then(r=>r.json()).then(k=>{
     const currentBalance = Number(k.current_balance ?? 0);
-    const todayUsage = Number(k.usage_today ?? 0);
-    const yesterdayUsage = Number(k.usage_yesterday ?? 0);
-    const rechargeToday = Number(k.recharge_today ?? 0);
 
-    // 当前余额 = 当前剩余电量（1 元 = 1 度电）
-    document.getElementById('kpi-balance').textContent = fmt(currentBalance);
-    // 今日用电（充值感知后）
-    document.getElementById('kpi-today').textContent = fmt(todayUsage);
+    // 从 /kpi 优先取
+    let usageToday = (k.usage_today != null) ? Number(k.usage_today) : null;
+    let usageYesterday = (k.usage_yesterday != null) ? Number(k.usage_yesterday) : null;
+    let rechargeToday = (k.recharge_today != null) ? Number(k.recharge_today) : null;
+    const yesterday_last_balance = (k.yesterday_last_balance != null) ? Number(k.yesterday_last_balance) : null;
 
-    // 较昨日/较上周期
-    const diffEl = document.getElementById('kpi-compare');
-    const diffSub = document.getElementById('kpi-compare-sub');
-    let diff = todayUsage - yesterdayUsage;
-    let subText = `昨日 ${fmt(yesterdayUsage)}，今日 ${fmt(todayUsage)}${rechargeToday>0?`，充值 ${fmt(rechargeToday)}`:''}`;
-    // 周/月改为“较上周期”，以接口 /period_kpi 计算
-    if(currentPeriod !== 'day'){
-      const deviceId = document.getElementById('deviceSelect').value;
-      fetch(`/period_kpi?period=${currentPeriod}&device_id=${deviceId}`).then(r=>r.json()).then(pk=>{
-        const cu = Number(pk.current_usage||0), pu = Number(pk.previous_usage||0);
-        const d = cu - pu;
-        diffEl.textContent = `${d>=0?'+':''}${fmt(d)}`;
-        diffEl.className = 'value ' + (d>=0? 'up':'down');
-        diffSub.textContent = `上周期 ${fmt(pu)}，本周期 ${fmt(cu)}`;
-      });
-    } else {
-      diffEl.textContent = `${diff>=0?'+':''}${fmt(diff)}`;
-      diffEl.className = 'value ' + (diff>=0? 'up':'down');
-      diffSub.textContent = subText;
+    // 回退：若 /kpi 未提供 usageToday，则用 dayData.balances 计算（取当天首尾有效读数差）
+    if(usageToday == null){
+      const balances = Array.isArray(dayData.balances) ? dayData.balances : [];
+      let first = null, last = null;
+      for(let v of balances){ if(v !== null && v !== undefined && !isNaN(Number(v))){ first = Number(v); break; } }
+      for(let i = balances.length-1; i>=0; i--){ const v = balances[i]; if(v !== null && v !== undefined && !isNaN(Number(v))){ last = Number(v); break; } }
+      usageToday = (first != null && last != null) ? Math.max(first - last, 0) : 0;
     }
 
-    // 预计可用天数：以最近 7 天日均用电估算（仍保留原逻辑）
-    const labelsW = weekData.labels||[]; const usageW = weekData.usage||[];
+    // 回退：若 /kpi 未提供 usageYesterday，则尝试从 weekData 找昨天的值
+    if(usageYesterday == null){
+      const labelsW = Array.isArray(weekData.labels) ? weekData.labels : [];
+      const usageW = Array.isArray(weekData.usage) ? weekData.usage : [];
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      const ys = yesterday.toISOString().slice(0,10);
+      const idx = labelsW.indexOf(ys);
+      usageYesterday = (idx >= 0 && usageW[idx] != null) ? Number(usageW[idx]) : 0;
+    }
+
+    // 回退：若 /kpi 未提供 rechargeToday，则用 currentBalance - yesterday_last_balance（若有）估算
+    if(rechargeToday == null){
+      if(yesterday_last_balance != null){
+        rechargeToday = Math.max(currentBalance - yesterday_last_balance, 0);
+      } else {
+        rechargeToday = 0;
+      }
+    }
+
+    // 填 UI
+    document.getElementById('kpi-balance').textContent = fmtVal(currentBalance);
+    document.getElementById('kpi-today').textContent = fmtVal(usageToday);
+
+    const diff = usageToday - usageYesterday;
+    const diffEl = document.getElementById('kpi-compare');
+    diffEl.textContent = `${diff>=0?'+':''}${fmtVal(diff)}`;
+    diffEl.className = 'value ' + (diff>=0 ? 'up' : 'down');
+    document.getElementById('kpi-compare-sub').textContent =
+      `昨日 ${fmtVal(usageYesterday)}，今日 ${fmtVal(usageToday)}${rechargeToday>0?`，充值 ${fmtVal(rechargeToday)}`:''}`;
+
+    // 预计可用天数 = 当前余额 / 近7天平均（不含今天）
+    const labelsW = Array.isArray(weekData.labels) ? weekData.labels : [];
+    const usageW = Array.isArray(weekData.usage) ? weekData.usage : [];
     const todayStr = new Date().toISOString().slice(0,10);
     const todayIdx = labelsW.indexOf(todayStr);
-    const usageForAvg = usageW.filter((_,i)=> i>0 && i!==todayIdx).map(Number).filter(v=>v>0);
-    const avg7 = usageForAvg.length ? (usageForAvg.reduce((a,b)=>a+b,0)/usageForAvg.length) : 0;
-    const days = avg7>0 ? (currentBalance/avg7) : Infinity;
-    document.getElementById('kpi-days').textContent = isFinite(days) ? fmt(days) : '∞';
+    const validUsage = usageW.filter((_,i)=> i!==todayIdx).map(Number).filter(v=>v>0);
+    const avg7 = validUsage.length ? validUsage.reduce((a,b)=>a+b,0)/validUsage.length : 0;
+    const days = avg7 > 0 ? (currentBalance / avg7) : Infinity;
+    document.getElementById('kpi-days').textContent = isFinite(days) ? fmtVal(days) : '∞';
+  }).catch(err=>{
+    // 报错时兜底显示 0
+    document.getElementById('kpi-balance').textContent = fmtVal(0);
+    document.getElementById('kpi-today').textContent = fmtVal(0);
+    document.getElementById('kpi-compare').textContent = fmtVal(0);
+    document.getElementById('kpi-compare-sub').textContent = '';
+    document.getElementById('kpi-days').textContent = '∞';
+    console.error('kpi fetch error', err);
   });
 }
 
+/* 加载并显示数据（period = 'day'|'week'|'month'） */
 function loadData(period){
   currentPeriod = period;
-  // 高亮当前周期按钮
+  // 给 period 按钮做高亮（默认行为）——但注意：当由日期选择触发且选中非今日时，后面会取消今日高亮
   document.querySelectorAll('.period-btn').forEach(btn=>{
-    if(btn.dataset.period === period){ btn.classList.add('active'); }
-    else { btn.classList.remove('active'); }
+    if(btn.dataset.period === period) btn.classList.add('active'); else btn.classList.remove('active');
   });
+
   const deviceId = document.getElementById('deviceSelect').value;
+  const dateParam = (period === 'day') ? `&date=${encodeURIComponent(currentDate)}` : '';
+
+  // 并行拉取当前周期数据 + 日数据 + 周数据（用于 KPI 计算）
   Promise.all([
-    fetch(`/data?period=${period}&device_id=${deviceId}${period==='day' ? `&date=${encodeURIComponent(currentDate)}`:''}`).then(r=>r.json()),
-    fetch(`/data?period=day&device_id=${deviceId}`).then(r=>r.json()),
-    fetch(`/data?period=week&device_id=${deviceId}`).then(r=>r.json())
-  ]).then(([chartRes, dayRes, weekRes])=>{
-    if(chartRes.labels.length===0) document.getElementById('status').innerText='暂无数据，先抓取或稍后再试';
-    renderSeparatedCharts(chartRes.labels, chartRes.balances, chartRes.usage);
-    // 显示当前选择的日期/时间段
-    const rangeEl = document.getElementById('rangeIndicator');
-    if(period==='day'){
-      rangeEl.textContent = `当前日期：${currentDate}`;
-    } else if(period==='week'){
-      const end = new Date();
-      const start = new Date(); start.setDate(end.getDate()-6);
-      rangeEl.textContent = `时间段：${start.toISOString().slice(0,10)} ~ ${end.toISOString().slice(0,10)}`;
+    fetch(`/data?period=${period}&device_id=${deviceId}${dateParam}`).then(r=>r.json()).catch(()=>({labels:[], balances:[], usage:[]}) ),
+    fetch(`/data?period=day&device_id=${deviceId}`).then(r=>r.json()).catch(()=>({labels:[], balances:[], usage:[]}) ),
+    fetch(`/data?period=week&device_id=${deviceId}`).then(r=>r.json()).catch(()=>({labels:[], balances:[], usage:[]}) )
+  ]).then(([chartRes = {}, dayRes = {}, weekRes = {}])=>{
+    const labels = Array.isArray(chartRes.labels) ? chartRes.labels : [];
+    const balances = Array.isArray(chartRes.balances) ? chartRes.balances : [];
+    const usage = Array.isArray(chartRes.usage) ? chartRes.usage : [];
+
+    // 如果 labels 为空提示
+    if(labels.length === 0){
+      document.getElementById('status').innerText = '暂无数据，先抓取或稍后再试';
     } else {
-      const end = new Date();
-      const start = new Date(); start.setDate(end.getDate()-29);
-      rangeEl.textContent = `时间段：${start.toISOString().slice(0,10)} ~ ${end.toISOString().slice(0,10)}`;
+      document.getElementById('status').innerText = '';
     }
-    updateKpis(dayRes, weekRes);
-    // 更新用电/对比标签文案
-    const labelEl = document.getElementById('kpi-usage-label');
-    labelEl.textContent = period==='day' ? '当日用电' : (period==='week' ? '近7天用电' : '近30天用电');
-    const compareLabel = document.getElementById('kpi-compare-label');
-    compareLabel.textContent = period==='day' ? '较昨日' : '较上周期';
-    // 更新 KPI 数值
-    if(period==='day'){
-      const arr = dayRes.balances||[];
-      const valid = arr.filter(v => v!==null && v!==undefined && !isNaN(Number(v)));
-      const first = valid.length ? Number(valid[0]) : null;
-      const last = valid.length ? Number(valid[valid.length-1]) : null;
-      const todayUsage = (first!=null && last!=null) ? Math.max(Number(first) - Number(last), 0) : 0;
-      document.getElementById('kpi-today').textContent = todayUsage.toFixed(2);
+
+    renderSeparatedCharts(labels, balances, usage);
+
+    // 时间范围显示
+    const rangeEl = document.getElementById('rangeIndicator');
+    if(period === 'day'){
+      rangeEl.textContent = `当前日期：${currentDate}`;
+    } else if(period === 'week'){
+      const end = new Date();
+      const start = new Date();
+      start.setDate(end.getDate() - 6);
+      rangeEl.textContent = `时间段：${fmtDate(start)} ~ ${fmtDate(end)}`;
     } else {
-      const totalUsage = (chartRes.usage||[]).reduce((a,b)=>a+Number(b||0),0);
+      const end = new Date();
+      const start = new Date();
+      start.setDate(end.getDate() - 29);
+      rangeEl.textContent = `时间段：${fmtDate(start)} ~ ${fmtDate(end)}`;
+    }
+
+    // 更新 KPI（使用 dayRes & weekRes 做回退）
+    updateKpis(dayRes, weekRes);
+
+    // 标签文字切换
+    const labelEl = document.getElementById('kpi-usage-label');
+    labelEl.textContent = period === 'day' ? '当日用电' : (period === 'week' ? '近7天用电' : '近30天用电');
+    const compareLabel = document.getElementById('kpi-compare-label');
+    compareLabel.textContent = period === 'day' ? '较昨日' : '较上周期';
+
+    // 对于 day 模式，前端再保底计算一次当日用电并展示（以保证界面及时反馈）
+    if(period === 'day'){
+      const arr = Array.isArray(dayRes.balances) ? dayRes.balances : [];
+      const valid = arr.filter(v => v !== null && v !== undefined && !isNaN(Number(v))).map(Number);
+      if(valid.length >= 2){
+        const first = valid[0];
+        const last = valid[valid.length - 1];
+        const todayUsage = Math.max(first - last, 0);
+        document.getElementById('kpi-today').textContent = Number(todayUsage).toFixed(2);
+      }
+    } else {
+      // 周/月显示总用电的备选展示（chartRes.usage 汇总）
+      const totalUsage = (usage || []).reduce((a,b)=>a + Number(b || 0), 0);
       document.getElementById('kpi-today').textContent = Number(totalUsage).toFixed(2);
     }
+  }).catch(err=>{
+    console.error('loadData error', err);
+    document.getElementById('status').innerText = '数据加载失败';
   });
 }
 
+// 格式化日期为 YYYY-MM-DD
+function fmtDate(d){
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${d.getFullYear()}-${m}-${day}`;
+}
+
+/* 手动抓取一次 */
 function fetchData(){
   const deviceId = document.getElementById('deviceSelect').value;
-  document.getElementById('status').innerText='抓取中...';
+  document.getElementById('status').innerText = '抓取中...';
   fetch(`/fetch?device_id=${deviceId}`).then(r=>r.json()).then(res=>{
-    document.getElementById('status').innerText=res.message;loadData(currentPeriod);
+    document.getElementById('status').innerText = res.message || '抓取完成';
+    // 触发刷新
+    loadData(currentPeriod);
+  }).catch(err=>{
+    document.getElementById('status').innerText = '抓取失败';
+    console.error(err);
   });
 }
 
-document.addEventListener('DOMContentLoaded',()=>{
-  const el = document.getElementById('devices-json');
-  try { devices = JSON.parse(el ? el.textContent : '[]'); } catch(e) { devices = []; }
-  populateDevices();
+/* 今日按钮：设置日期选择器为今天，并加载 day 数据；不要使用 datePicker._flatpickr（不可靠） */
+function showToday(){
+  currentPeriod = 'day';
+  currentDate = new Date().toISOString().slice(0,10);
+  if(datePicker){
+    // 第二个参数 false 表示不触发 onChange 回调——我们下面手动调用 loadData
+    datePicker.setDate(currentDate, false);
+  }
+  // 设置按钮高亮
+  document.querySelectorAll('.period-btn').forEach(btn=>btn.classList.remove('active'));
+  document.getElementById('todayBtn').classList.add('active');
   loadData('day');
+}
+
+/* 页面初始化：解析 devices-json、初始化 flatpickr、初始化事件 */
+document.addEventListener('DOMContentLoaded', ()=>{
+  // 从页面内 JSON 读取设备列表（模板里由后端注入）
+  const el = document.getElementById('devices-json');
+  try { devices = JSON.parse(el ? el.textContent : '[]'); } catch(e){ devices = []; }
+
+  // 填充设备下拉
+  const sel = document.getElementById('deviceSelect');
+  sel.innerHTML = (devices || []).map(d=>`<option value="${d.id}">${d.name}</option>`).join('');
+  if((devices || []).length === 0){
+    // 如果模板没有注入 devices，可以手动添加一个占位（防止空）
+    sel.innerHTML = `<option value="19101109825">默认设备</option>`;
+  }
+
+  // 初始化 flatpickr 并保留实例
+  datePicker = flatpickr("#datePicker", {
+    locale: "zh",
+    dateFormat: "Y-m-d",
+    defaultDate: currentDate,
+    onChange: function(selectedDates, dateStr){
+      currentDate = dateStr || currentDate;
+      currentPeriod = 'day';
+      // 先加载数据（默认会把 day 的按钮高亮），随后如果选中的不是今天，则取消今日按钮高亮
+      loadData('day');
+      const todayStr = new Date().toISOString().slice(0,10);
+      if(dateStr !== todayStr){
+        // 取消今日按钮高亮（因为选中了其它日期）
+        document.querySelectorAll('.period-btn').forEach(btn=>btn.classList.remove('active'));
+      } else {
+        // 选中了今天，确保今日高亮
+        document.querySelectorAll('.period-btn').forEach(btn=>btn.classList.remove('active'));
+        document.getElementById('todayBtn').classList.add('active');
+      }
+    }
+  });
+
+  // 启动时显示今日
+  showToday();
 });
 </script>
+
+<!-- 后端模板会注入 devices JSON -->
 <script type="application/json" id="devices-json">{{ devices|tojson }}</script>
 </body>
 </html>

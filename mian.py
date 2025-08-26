@@ -82,100 +82,156 @@ def save_to_db(data):
 def get_statistics(period="day", device_id=None, target_date=None):
     conn = pymysql.connect(**DB_CONFIG)
     cursor = conn.cursor(pymysql.cursors.DictCursor)
-    now = now_cn()
-    labels, balances, usage = [], [], []
+    try:
+        now = now_cn()
+        labels, balances, usage = [], [], []
 
-    where_clause = ""
-    params = []
-    if device_id:
-        where_clause = " AND meter_no=%s"
-        params.append(device_id)
+        where_clause = ""
+        params = []
+        if device_id:
+            where_clause = " AND meter_no=%s"
+            params.append(device_id)
 
-    if period=="day":
-        if target_date:
-            try:
-                base = datetime.strptime(target_date, "%Y-%m-%d")
-            except Exception:
-                base = now
-            start_time = base.replace(hour=0, minute=0, second=0, microsecond=0)
-        else:
-            start_time = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        end_time = start_time + timedelta(days=1)
-        sql = f"SELECT collected_at, remain FROM electricity_balance WHERE collected_at >= %s AND collected_at < %s {where_clause} ORDER BY collected_at"
-        cursor.execute(sql,(start_time, end_time, *params))
-        rows = cursor.fetchall()
-        # 取每小时最后一条余额
-        last_by_hour = { }
-        for r in rows:
-            h = r['collected_at'].hour
-            last_by_hour[h] = float(r['remain']) if r['remain'] is not None else None
-        for h in range(24):
-            labels.append(f"{h:02d}点")
-            last_val = last_by_hour.get(h, None)
-            # 用 None 表示该小时无读数，避免前端把缺失当做 0
-            balances.append(last_val if last_val is not None else None)
-        # 用电量 = 上一小时最后余额 - 当前小时最后余额（负数按0）
-        for h in range(24):
-            if h == 0:
-                usage.append(0)
+        if period == "day":
+            if target_date:
+                try:
+                    base = datetime.strptime(target_date, "%Y-%m-%d")
+                except Exception:
+                    base = now
+                start_time = base.replace(hour=0, minute=0, second=0, microsecond=0)
             else:
-                prev_last = last_by_hour.get(h-1, None)
-                curr_last = last_by_hour.get(h, None)
-                if prev_last is not None and curr_last is not None:
-                    usage.append(max(prev_last - curr_last, 0))
+                start_time = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            end_time = start_time + timedelta(days=1)
+
+            # 1) 当天所有读数
+            sql_day = f"""
+                SELECT collected_at, remain
+                FROM electricity_balance
+                WHERE collected_at >= %s AND collected_at < %s {where_clause}
+                ORDER BY collected_at
+            """
+            cursor.execute(sql_day, tuple([start_time, end_time] + params))
+            rows = cursor.fetchall()
+
+            # 2) start_time 之前最近一条读数（用于 0 点的用电计算）
+            sql_prev = f"""
+                SELECT collected_at, remain
+                FROM electricity_balance
+                WHERE collected_at < %s {where_clause}
+                ORDER BY collected_at DESC
+                LIMIT 1
+            """
+            cursor.execute(sql_prev, tuple([start_time] + params))
+            prev_row = cursor.fetchone()
+            prev_remain = float(prev_row['remain']) if prev_row and prev_row['remain'] is not None else None
+
+            # 取每小时最后一条余额（只使用当天范围内的行）
+            last_by_hour = {}
+            for r in rows:
+                if r['remain'] is None:
+                    continue
+                h = r['collected_at'].hour
+                last_by_hour[h] = float(r['remain'])
+
+            # labels / balances（00点到23点）
+            for h in range(24):
+                labels.append(f"{h:02d}点")
+                balances.append(last_by_hour.get(h, None))
+
+            # 计算每小时用电：hour0 用 prev_remain - hour0_last，如果缺 prev_remain 则 0
+            for h in range(24):
+                if h == 0:
+                    first_val = last_by_hour.get(0, None)
+                    if prev_remain is not None and first_val is not None:
+                        usage.append(max(prev_remain - first_val, 0))
+                    else:
+                        usage.append(0)
                 else:
-                    usage.append(0)
-    else:
-        days = 7 if period=="week" else 30
-        start_time = (now - timedelta(days=days-1)).replace(hour=0, minute=0, second=0, microsecond=0)
-        end_time = now.replace(hour=23, minute=59, second=59, microsecond=999999)
-        sql = f"SELECT collected_at, remain FROM electricity_balance WHERE collected_at >= %s AND collected_at <= %s {where_clause} ORDER BY collected_at"
-        cursor.execute(sql,(start_time, end_time, *params))
-        rows = cursor.fetchall()
+                    prev_last = last_by_hour.get(h - 1, None)
+                    curr_last = last_by_hour.get(h, None)
+                    if prev_last is not None and curr_last is not None:
+                        usage.append(max(prev_last - curr_last, 0))
+                    else:
+                        usage.append(0)
 
-        # 按天聚合：
-        # balances[day] = 当天最后一条余额
-        # usage[day] = 当天所有相邻读数的下降量之和（忽略上升=充值）
-        last_by_day = {}
-        usage_by_day = {}
-        prev_ts = None
-        prev_remain = None
-        prev_day = None
-        for r in rows:
-            ts = r['collected_at']
-            rem = float(r['remain']) if r['remain'] is not None else None
-            if rem is None:
-                continue
-            day_key = str(ts.date())
-            # 更新当日最后余额
-            last_by_day[day_key] = rem
-            # 计算当日内部下降
-            if prev_ts is not None:
-                cur_day = day_key
-                if prev_day == cur_day and prev_remain is not None:
-                    drop = prev_remain - rem
-                    if drop > 0:
-                        usage_by_day[cur_day] = usage_by_day.get(cur_day, 0.0) + drop
-            prev_ts = ts
-            prev_remain = rem
-            prev_day = day_key
+        else:
+            # week / month
+            days = 7 if period == "week" else 30
+            start_time = (now - timedelta(days=days - 1)).replace(hour=0, minute=0, second=0, microsecond=0)
+            end_time = now.replace(hour=23, minute=59, second=59, microsecond=999999)
 
-        # 构建连续日期序列并填充
-        cur_date = start_time.date()
-        end_date = now.date()
-        ordered_days = []
-        while cur_date <= end_date:
-            ordered_days.append(str(cur_date))
-            cur_date = cur_date + timedelta(days=1)
+            sql_range = f"""
+                SELECT collected_at, remain
+                FROM electricity_balance
+                WHERE collected_at >= %s AND collected_at <= %s {where_clause}
+                ORDER BY collected_at
+            """
+            cursor.execute(sql_range, tuple([start_time, end_time] + params))
+            rows = cursor.fetchall()
 
-        for d in ordered_days:
-            labels.append(d)
-            balances.append(last_by_day.get(d, None))
-            usage.append(float(usage_by_day.get(d, 0.0)))
+            # 取得 start_time 之前最近一条记录，用于把跨午夜的下降计入首日
+            sql_prev = f"""
+                SELECT collected_at, remain
+                FROM electricity_balance
+                WHERE collected_at < %s {where_clause}
+                ORDER BY collected_at DESC
+                LIMIT 1
+            """
+            cursor.execute(sql_prev, tuple([start_time] + params))
+            prev_row = cursor.fetchone()
+            prev_remain = float(prev_row['remain']) if prev_row and prev_row['remain'] is not None else None
 
-    cursor.close()
-    conn.close()
-    return labels, balances, usage
+            # 遍历计算当日最后余额与当日内部下降量累加
+            last_by_day = {}
+            usage_by_day = {}
+            prev_ts = None
+            prev_remain_iter = None
+            prev_day = None
+            for r in rows:
+                ts = r['collected_at']
+                rem = float(r['remain']) if r['remain'] is not None else None
+                if rem is None:
+                    continue
+                day_key = str(ts.date())
+                # 更新当日最后余额
+                last_by_day[day_key] = rem
+                # 计算当日内部下降（只在同一天的连续两条读数之间计算）
+                if prev_ts is not None:
+                    cur_day = day_key
+                    if prev_day == cur_day and prev_remain_iter is not None:
+                        drop = prev_remain_iter - rem
+                        if drop > 0:
+                            usage_by_day[cur_day] = usage_by_day.get(cur_day, 0.0) + drop
+                prev_ts = ts
+                prev_remain_iter = rem
+                prev_day = day_key
+
+            # 把 start_time 之前的最近一条记录和当天第一条读数之间的下降计入首日（避免漏算跨午夜下降）
+            if prev_remain is not None and rows:
+                first_row = rows[0]
+                first_day = str(first_row['collected_at'].date())
+                first_rem = float(first_row['remain']) if first_row['remain'] is not None else None
+                if first_rem is not None and prev_remain > first_rem:
+                    usage_by_day[first_day] = usage_by_day.get(first_day, 0.0) + (prev_remain - first_rem)
+
+            # 构建连续日期序列并填充
+            cur_date = start_time.date()
+            end_date = now.date()
+            ordered_days = []
+            while cur_date <= end_date:
+                ordered_days.append(str(cur_date))
+                cur_date = cur_date + timedelta(days=1)
+
+            for d in ordered_days:
+                labels.append(d)
+                balances.append(last_by_day.get(d, None))
+                usage.append(float(usage_by_day.get(d, 0.0)))
+
+        return labels, balances, usage
+    finally:
+        cursor.close()
+        conn.close()
+
 
 def _compute_total_usage(conn, device_id, start_time, end_time):
     cursor = conn.cursor()
@@ -320,7 +376,7 @@ def scheduled_fetch():
 
 if __name__=="__main__":
     scheduler = BackgroundScheduler(timezone="Asia/Shanghai")
-    interval_seconds = int(os.getenv("FETCH_INTERVAL_SECONDS", "60"))
+    interval_seconds = int(os.getenv("FETCH_INTERVAL_SECONDS", "300"))
     scheduler.add_job(scheduled_fetch, 'interval', seconds=interval_seconds, id='fetch_job', max_instances=1, coalesce=True)
     # 首次启动时，立即触发一次抓取，避免页面空白
     scheduler.add_job(scheduled_fetch, 'date', run_date=datetime.now() + timedelta(seconds=1), id='bootstrap_fetch', misfire_grace_time=60, coalesce=True)
