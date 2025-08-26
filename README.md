@@ -9,10 +9,10 @@
   - 两张图：
     - 用电量（折线，波浪填充，上方）
     - 余额（柱状，下方）
-  - 支持选择日期（默认今天）或切换“近7天 / 近30天”并显示当前时间范围
+  - 支持选择日期（默认今天）或切换“今日/近7天 / 近30天”并显示当前时间范围
   - 数值统一保留两位小数，横向可滑动
 - 后端 API：`/data`、`/kpi`、`/period_kpi`、`/fetch`
-- 定时抓取：APScheduler 后台任务，默认每 60 秒抓取一次；启动时自动触发一次抓取避免空白
+- 定时抓取：APScheduler 后台任务，默认每 300 秒抓取一次；启动时自动触发一次抓取避免空白
 
 ### 依赖
 - Python 3.9+
@@ -48,18 +48,18 @@ docker run -d --name electricity-bill \
   # 可选：覆盖默认数据库连接
   -e DB_HOST=111.119.253.196 -e DB_PORT=8806 \
   -e DB_USER=root -e DB_PASSWORD=123456 -e DB_NAME=dev \
-  -e FETCH_INTERVAL_SECONDS=60 \
+  -e FETCH_INTERVAL_SECONDS=300 \
   electricity-bill:latest
 ```
 
 ### 配置（环境变量，均有默认值）
 - `DB_HOST` `DB_PORT` `DB_USER` `DB_PASSWORD` `DB_NAME` `DB_CHARSET`
-- `FETCH_INTERVAL_SECONDS`：抓取间隔（秒），默认 60
+- `FETCH_INTERVAL_SECONDS`：抓取间隔（秒），默认 300
 - `HOST` `PORT` `FLASK_DEBUG`：Flask 运行参数
 
 ### 使用说明（前端）
 - 顶部“日期”按钮：打开系统日期选择器（默认今天）。
-- “近7天/近30天”按钮：切换周期；再次点击“日期”可回到按天模式。
+- “今日/近7天/近30天”按钮：切换周期；再次点击“日期”可回到按天模式。
 - 标题下方显示当前选择的日期或时间段。
 
 ### 计算口径（核心逻辑）
