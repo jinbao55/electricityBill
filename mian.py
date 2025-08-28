@@ -125,29 +125,44 @@ def get_statistics(period="day", device_id=None, target_date=None):
             prev_row = cursor.fetchone()
             prev_remain = float(prev_row['remain']) if prev_row and prev_row['remain'] is not None else None
 
-            # 取每小时最后一条余额（只使用当天范围内的行）
+            # 取每小时余额：00点取第一条，其他小时取最后一条
             last_by_hour = {}
+            first_by_hour = {}
             for r in rows:
                 if r['remain'] is None:
                     continue
                 h = r['collected_at'].hour
+                # 记录每小时的最后一条
                 last_by_hour[h] = float(r['remain'])
+                # 记录每小时的第一条（只在第一次遇到时记录）
+                if h not in first_by_hour:
+                    first_by_hour[h] = float(r['remain'])
 
             # labels / balances（00点到23点）
             for h in range(24):
                 labels.append(f"{h:02d}点")
-                balances.append(last_by_hour.get(h, None))
+                # 00点使用第一条余额，其他小时使用最后一条余额
+                if h == 0:
+                    balances.append(first_by_hour.get(h, None))
+                else:
+                    balances.append(last_by_hour.get(h, None))
 
-            # 计算每小时用电：hour0 用 prev_remain - hour0_last，如果缺 prev_remain 则 0
+            # 计算每小时用电：hour0 用 prev_remain - hour0_first，其他小时用 prev_hour_last - curr_hour_last
             for h in range(24):
                 if h == 0:
-                    first_val = last_by_hour.get(0, None)
-                    if prev_remain is not None and first_val is not None:
-                        usage.append(max(prev_remain - first_val, 0))
+                    # 00点用电 = 前一天最后余额 - 00点第一条余额
+                    first_val_00 = first_by_hour.get(0, None)
+                    if prev_remain is not None and first_val_00 is not None:
+                        usage.append(max(prev_remain - first_val_00, 0))
                     else:
                         usage.append(0)
                 else:
-                    prev_last = last_by_hour.get(h - 1, None)
+                    # 其他小时用电 = 上小时最后余额 - 当前小时最后余额
+                    if h == 1:
+                        # 01点特殊处理：上小时是00点，需要用00点的最后一条余额
+                        prev_last = last_by_hour.get(0, None)
+                    else:
+                        prev_last = last_by_hour.get(h - 1, None)
                     curr_last = last_by_hour.get(h, None)
                     if prev_last is not None and curr_last is not None:
                         usage.append(max(prev_last - curr_last, 0))

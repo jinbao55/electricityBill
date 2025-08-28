@@ -336,68 +336,112 @@ function renderSeparatedCharts(labels = [], balances = [], usage = []){
   });
 }
 
-/* 更新 KPI：优先使用 /kpi 接口字段；若字段缺失则回退到 dayData/weekData 的计算 */
-function updateKpis(dayData = {}, weekData = {}){
+/* 更新 KPI：根据当前周期动态显示对应的用电量和对比数据 */
+function updateKpis(period, chartData = {}, dayData = {}, weekData = {}){
   const fmtVal = (n)=>Number(n ?? 0).toFixed(2);
   const deviceId = document.getElementById('deviceSelect').value;
-  fetch(`/kpi?device_id=${deviceId}`).then(r=>r.json()).then(k=>{
-    const currentBalance = Number(k.current_balance ?? 0);
-
-    // 从 /kpi 优先取
-    let usageToday = (k.usage_today != null) ? Number(k.usage_today) : null;
-    let usageYesterday = (k.usage_yesterday != null) ? Number(k.usage_yesterday) : null;
-    let rechargeToday = (k.recharge_today != null) ? Number(k.recharge_today) : null;
-    const yesterday_last_balance = (k.yesterday_last_balance != null) ? Number(k.yesterday_last_balance) : null;
-
-    // 回退：若 /kpi 未提供 usageToday，则用 dayData.balances 计算（取当天首尾有效读数差）
-    if(usageToday == null){
-      const balances = Array.isArray(dayData.balances) ? dayData.balances : [];
-      let first = null, last = null;
-      for(let v of balances){ if(v !== null && v !== undefined && !isNaN(Number(v))){ first = Number(v); break; } }
-      for(let i = balances.length-1; i>=0; i--){ const v = balances[i]; if(v !== null && v !== undefined && !isNaN(Number(v))){ last = Number(v); break; } }
-      usageToday = (first != null && last != null) ? Math.max(first - last, 0) : 0;
-    }
-
-    // 回退：若 /kpi 未提供 usageYesterday，则尝试从 weekData 找昨天的值
-    if(usageYesterday == null){
-      const labelsW = Array.isArray(weekData.labels) ? weekData.labels : [];
-      const usageW = Array.isArray(weekData.usage) ? weekData.usage : [];
-      const yesterday = new Date();
-      yesterday.setDate(yesterday.getDate() - 1);
-      const ys = yesterday.toISOString().slice(0,10);
-      const idx = labelsW.indexOf(ys);
-      usageYesterday = (idx >= 0 && usageW[idx] != null) ? Number(usageW[idx]) : 0;
-    }
-
-    // 回退：若 /kpi 未提供 rechargeToday，则用 currentBalance - yesterday_last_balance（若有）估算
-    if(rechargeToday == null){
-      if(yesterday_last_balance != null){
-        rechargeToday = Math.max(currentBalance - yesterday_last_balance, 0);
+  
+  // 并行获取基础数据
+  Promise.all([
+    fetch(`/kpi?device_id=${deviceId}`).then(r=>r.json()).catch(()=>({})),
+    period !== 'day' ? fetch(`/period_kpi?period=${period}&device_id=${deviceId}`).then(r=>r.json()).catch(()=>({})) : Promise.resolve({})
+  ]).then(([kpiData = {}, periodData = {}])=>{
+    const currentBalance = Number(kpiData.current_balance ?? 0);
+    
+    // 根据周期计算当前用电量和对比数据
+    let currentUsage = 0;
+    let previousUsage = 0;
+    let compareText = '';
+    let rechargeInfo = '';
+    
+    if(period === 'day'){
+      // 日模式：判断是否选择的今日
+      const todayStr = new Date().toISOString().slice(0,10);
+      const isToday = currentDate === todayStr;
+      
+      if(isToday){
+        // 选择今日：优先使用 /kpi 接口数据
+        currentUsage = Number(kpiData.usage_today ?? 0);
+        previousUsage = Number(kpiData.usage_yesterday ?? 0);
+        const rechargeToday = Number(kpiData.recharge_today ?? 0);
+        
+        // 回退计算：如果 /kpi 没有数据，用 dayData 计算
+        if(currentUsage === 0 && dayData.balances){
+          const balances = Array.isArray(dayData.balances) ? dayData.balances : [];
+          const valid = balances.filter(v => v !== null && v !== undefined && !isNaN(Number(v))).map(Number);
+          if(valid.length >= 2){
+            currentUsage = Math.max(valid[0] - valid[valid.length - 1], 0);
+          }
+        }
+        
+        compareText = `昨日 ${fmtVal(previousUsage)}，今日 ${fmtVal(currentUsage)}`;
+        if(rechargeToday > 0) rechargeInfo = `，充值 ${fmtVal(rechargeToday)}`;
+        
       } else {
-        rechargeToday = 0;
+        // 选择非今日：使用 chartData 计算该日期的用电量（chartData 包含正确的日期数据）
+        const balances = Array.isArray(chartData.balances) ? chartData.balances : [];
+        const valid = balances.filter(v => v !== null && v !== undefined && !isNaN(Number(v))).map(Number);
+        
+        if(valid.length >= 2){
+          currentUsage = Math.max(valid[0] - valid[valid.length - 1], 0);
+        } else {
+          currentUsage = 0;
+        }
+        
+        // 对于历史日期，不显示对比数据和预计天数
+        previousUsage = 0;
+        compareText = `${currentDate} 当日用电`;
       }
+      
+    } else {
+      // 周/月模式：使用图表数据汇总 + /period_kpi 对比
+      const usage = Array.isArray(chartData.usage) ? chartData.usage : [];
+      currentUsage = usage.reduce((sum, val) => sum + Number(val || 0), 0);
+      
+      // 使用 /period_kpi 获取上周期数据
+      previousUsage = Number(periodData.previous_usage ?? 0);
+      
+      const periodName = period === 'week' ? '周' : '月';
+      compareText = `上${periodName} ${fmtVal(previousUsage)}，本${periodName} ${fmtVal(currentUsage)}`;
     }
-
-    // 填 UI
+    
+    // 更新 UI
     document.getElementById('kpi-balance').textContent = fmtVal(currentBalance);
-    document.getElementById('kpi-today').textContent = fmtVal(usageToday);
-
-    const diff = usageToday - usageYesterday;
-    const diffEl = document.getElementById('kpi-compare');
-    diffEl.textContent = `${diff>=0?'+':''}${fmtVal(diff)}`;
-    diffEl.className = 'value ' + (diff>=0 ? 'up' : 'down');
-    document.getElementById('kpi-compare-sub').textContent =
-      `昨日 ${fmtVal(usageYesterday)}，今日 ${fmtVal(usageToday)}${rechargeToday>0?`，充值 ${fmtVal(rechargeToday)}`:''}`;
-
-    // 预计可用天数 = 当前余额 / 近7天平均（不含今天）
-    const labelsW = Array.isArray(weekData.labels) ? weekData.labels : [];
-    const usageW = Array.isArray(weekData.usage) ? weekData.usage : [];
+    document.getElementById('kpi-today').textContent = fmtVal(currentUsage);
+    
+    // 判断是否为今日或今日模式，决定是否显示对比和预计天数
     const todayStr = new Date().toISOString().slice(0,10);
-    const todayIdx = labelsW.indexOf(todayStr);
-    const validUsage = usageW.filter((_,i)=> i!==todayIdx).map(Number).filter(v=>v>0);
-    const avg7 = validUsage.length ? validUsage.reduce((a,b)=>a+b,0)/validUsage.length : 0;
-    const days = avg7 > 0 ? (currentBalance / avg7) : Infinity;
-    document.getElementById('kpi-days').textContent = isFinite(days) ? fmtVal(days) : '∞';
+    const isToday = currentDate === todayStr;
+    const showComparison = (period === 'day' && isToday) || period !== 'day';
+    
+    if(showComparison){
+      // 显示对比数据
+      const diff = currentUsage - previousUsage;
+      const diffEl = document.getElementById('kpi-compare');
+      diffEl.textContent = `${diff>=0?'+':''}${fmtVal(diff)}`;
+      diffEl.className = 'value ' + (diff>=0 ? 'up' : 'down');
+      document.getElementById('kpi-compare-sub').textContent = compareText + rechargeInfo;
+      
+      // 显示预计可用天数（只在今日模式下显示）
+      if(period === 'day' && isToday){
+        const labelsW = Array.isArray(weekData.labels) ? weekData.labels : [];
+        const usageW = Array.isArray(weekData.usage) ? weekData.usage : [];
+        const todayIdx = labelsW.indexOf(todayStr);
+        const validUsage = usageW.filter((_,i)=> i!==todayIdx).map(Number).filter(v=>v>0);
+        const avg7 = validUsage.length ? validUsage.reduce((a,b)=>a+b,0)/validUsage.length : 0;
+        const days = avg7 > 0 ? (currentBalance / avg7) : Infinity;
+        document.getElementById('kpi-days').textContent = isFinite(days) ? fmtVal(days) : '∞';
+      } else {
+        document.getElementById('kpi-days').textContent = '--';
+      }
+    } else {
+      // 历史日期：隐藏对比数据
+      document.getElementById('kpi-compare').textContent = '--';
+      document.getElementById('kpi-compare').className = 'value';
+      document.getElementById('kpi-compare-sub').textContent = compareText;
+      document.getElementById('kpi-days').textContent = '--';
+    }
+    
   }).catch(err=>{
     // 报错时兜底显示 0
     document.getElementById('kpi-balance').textContent = fmtVal(0);
@@ -455,30 +499,14 @@ function loadData(period){
       rangeEl.textContent = `时间段：${fmtDate(start)} ~ ${fmtDate(end)}`;
     }
 
-    // 更新 KPI（使用 dayRes & weekRes 做回退）
-    updateKpis(dayRes, weekRes);
-
     // 标签文字切换
     const labelEl = document.getElementById('kpi-usage-label');
     labelEl.textContent = period === 'day' ? '当日用电' : (period === 'week' ? '近7天用电' : '近30天用电');
     const compareLabel = document.getElementById('kpi-compare-label');
     compareLabel.textContent = period === 'day' ? '较昨日' : '较上周期';
 
-    // 对于 day 模式，前端再保底计算一次当日用电并展示（以保证界面及时反馈）
-    if(period === 'day'){
-      const arr = Array.isArray(dayRes.balances) ? dayRes.balances : [];
-      const valid = arr.filter(v => v !== null && v !== undefined && !isNaN(Number(v))).map(Number);
-      if(valid.length >= 2){
-        const first = valid[0];
-        const last = valid[valid.length - 1];
-        const todayUsage = Math.max(first - last, 0);
-        document.getElementById('kpi-today').textContent = Number(todayUsage).toFixed(2);
-      }
-    } else {
-      // 周/月显示总用电的备选展示（chartRes.usage 汇总）
-      const totalUsage = (usage || []).reduce((a,b)=>a + Number(b || 0), 0);
-      document.getElementById('kpi-today').textContent = Number(totalUsage).toFixed(2);
-    }
+    // 更新 KPI（传入当前周期和所有相关数据）
+    updateKpis(period, chartRes, dayRes, weekRes);
   }).catch(err=>{
     console.error('loadData error', err);
     document.getElementById('status').innerText = '数据加载失败';
