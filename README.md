@@ -1,6 +1,6 @@
 ## 辰域电表用电可视化（Flask）
 
-[![Docker Build](https://github.com/yourusername/electricitybill/actions/workflows/docker-build.yml/badge.svg)](https://github.com/yourusername/electricitybill/actions/workflows/docker-build.yml)
+[![Docker Build](https://github.com/jinbao55/electricitybill/actions/workflows/docker-build.yml/badge.svg)](https://github.com/jinbao55/electricitybill/actions/workflows/docker-build.yml)
 
 ### 项目目的
 - 本项目通过定时抓取余额、入库，并计算“当日/近7天/近30天”的用电趋势，让手机端直观查看用电量与余额变化。
@@ -45,7 +45,7 @@ python mian.py
 ##### 🚀 一键部署（推荐）
 ```bash
 # 克隆项目
-git clone https://github.com/yourusername/electricitybill.git
+git clone https://github.com/jinbao55/electricitybill.git
 cd electricitybill
 
 # 配置环境变量
@@ -59,7 +59,7 @@ nano .env  # 修改数据库配置
 ##### 📦 使用预构建镜像
 ```bash
 # 拉取最新镜像
-docker pull ghcr.io/yourusername/electricitybill:latest
+docker pull ghcr.io/jinbao55/electricitybill:latest
 
 # 启动容器
 docker run -d --name electricity-bill \
@@ -70,7 +70,7 @@ docker run -d --name electricity-bill \
   -e DB_USER=root -e DB_PASSWORD=123456 -e DB_NAME=dev \
   -e FETCH_INTERVAL_SECONDS=300 \
   --label com.centurylinklabs.watchtower.enable=true \
-  ghcr.io/yourusername/electricitybill:latest
+  ghcr.io/jinbao55/electricitybill:latest
 ```
 
 ##### 🔧 本地构建
