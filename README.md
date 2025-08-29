@@ -1,5 +1,7 @@
 ## 辰域电表用电可视化（Flask）
 
+[![Docker Build](https://github.com/yourusername/electricitybill/actions/workflows/docker-build.yml/badge.svg)](https://github.com/yourusername/electricitybill/actions/workflows/docker-build.yml)
+
 ### 项目目的
 - 本项目通过定时抓取余额、入库，并计算“当日/近7天/近30天”的用电趋势，让手机端直观查看用电量与余额变化。
 
@@ -39,16 +41,45 @@ python mian.py
 ```
 
 #### Docker（推荐）
+
+##### 🚀 一键部署（推荐）
+```bash
+# 克隆项目
+git clone https://github.com/yourusername/electricitybill.git
+cd electricitybill
+
+# 配置环境变量
+cp env.example .env
+nano .env  # 修改数据库配置
+
+# 一键启动（包含自动更新）
+./deploy.sh start
+```
+
+##### 📦 使用预构建镜像
+```bash
+# 拉取最新镜像
+docker pull ghcr.io/yourusername/electricitybill:latest
+
+# 启动容器
+docker run -d --name electricity-bill \
+  --restart unless-stopped \
+  -p 9136:5000 \
+  -e TZ=Asia/Shanghai \
+  -e DB_HOST=111.119.253.196 -e DB_PORT=8806 \
+  -e DB_USER=root -e DB_PASSWORD=123456 -e DB_NAME=dev \
+  -e FETCH_INTERVAL_SECONDS=300 \
+  --label com.centurylinklabs.watchtower.enable=true \
+  ghcr.io/yourusername/electricitybill:latest
+```
+
+##### 🔧 本地构建
 ```bash
 docker build -t electricity-bill:latest .
 docker run -d --name electricity-bill \
   --restart unless-stopped \
   -p 9136:5000 \
   -e TZ=Asia/Shanghai \
-  # 可选：覆盖默认数据库连接
-  -e DB_HOST=111.119.253.196 -e DB_PORT=8806 \
-  -e DB_USER=root -e DB_PASSWORD=123456 -e DB_NAME=dev \
-  -e FETCH_INTERVAL_SECONDS=300 \
   electricity-bill:latest
 ```
 
@@ -98,6 +129,28 @@ DEVICE_LIST = [
 
 ### 安全提示
 - 生产环境请通过环境变量传递数据库凭据，避免提交到仓库。
+
+### 🚀 CI/CD 自动化部署
+
+本项目支持 GitHub Actions + Watchtower 的全自动化部署流程。
+
+#### 特性
+- ✅ **自动构建**: 推送代码后自动构建 Docker 镜像
+- ✅ **自动部署**: Watchtower 检测镜像更新并自动重启容器
+- ✅ **多架构支持**: 支持 AMD64 和 ARM64 架构
+- ✅ **零停机更新**: 滚动更新，服务不中断
+- ✅ **通知提醒**: 支持 Slack/邮件通知部署状态
+
+#### 快速启用
+
+1. **推送到 GitHub**: 代码推送后自动触发构建
+2. **配置 Watchtower**: 
+   ```bash
+   ./deploy.sh start  # 一键启动应用和自动更新
+   ```
+3. **享受自动化**: 以后每次代码更新都会自动部署
+
+详细配置请参考 [DEPLOYMENT.md](./DEPLOYMENT.md)
 
 ### 许可
 仅用于个人学习与使用场景；抓取频率请合理设置，避免对第三方服务造成压力。

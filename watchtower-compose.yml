@@ -1,0 +1,51 @@
+version: '3.8'
+
+# 独立的 Watchtower 配置
+# 适用于已有应用容器，只需要添加自动更新功能的场景
+
+services:
+  watchtower:
+    image: containrrr/watchtower:latest
+    container_name: watchtower-electricity
+    restart: unless-stopped
+    environment:
+      - TZ=Asia/Shanghai
+      # 核心配置
+      - WATCHTOWER_POLL_INTERVAL=300     # 5分钟检查一次更新
+      - WATCHTOWER_CLEANUP=true          # 自动清理旧镜像
+      - WATCHTOWER_INCLUDE_RESTARTING=true
+      - WATCHTOWER_INCLUDE_STOPPED=true
+      - WATCHTOWER_REVIVE_STOPPED=false
+      
+      # 标签模式：只监控带有特定标签的容器
+      - WATCHTOWER_LABEL_ENABLE=true
+      
+      # 调试模式（可选，生产环境建议关闭）
+      - WATCHTOWER_DEBUG=false
+      - WATCHTOWER_LOG_LEVEL=info
+      
+      # 通知配置（可选 - Slack）
+      # - WATCHTOWER_NOTIFICATIONS=slack
+      # - WATCHTOWER_NOTIFICATION_SLACK_HOOK_URL=${SLACK_WEBHOOK_URL}
+      # - WATCHTOWER_NOTIFICATION_SLACK_IDENTIFIER=electricity-bill-updater
+      # - WATCHTOWER_NOTIFICATION_SLACK_CHANNEL=#devops
+      
+      # 通知配置（可选 - 邮件）
+      # - WATCHTOWER_NOTIFICATIONS=email
+      # - WATCHTOWER_NOTIFICATION_EMAIL_FROM=watchtower@yourdomain.com
+      # - WATCHTOWER_NOTIFICATION_EMAIL_TO=admin@yourdomain.com
+      # - WATCHTOWER_NOTIFICATION_EMAIL_SERVER=smtp.gmail.com
+      # - WATCHTOWER_NOTIFICATION_EMAIL_SERVER_PORT=587
+      # - WATCHTOWER_NOTIFICATION_EMAIL_SERVER_USER=your-email@gmail.com
+      # - WATCHTOWER_NOTIFICATION_EMAIL_SERVER_PASSWORD=your-app-password
+      
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    
+    # 可选：限制资源使用
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+        reservations:
+          memory: 64M

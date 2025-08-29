@@ -1,0 +1,58 @@
+version: '3.8'
+
+services:
+  electricity-bill:
+    image: ghcr.io/${GITHUB_REPOSITORY:-yourusername/electricitybill}:latest
+    container_name: electricity-bill
+    restart: unless-stopped
+    ports:
+      - "9136:5000"
+    environment:
+      - TZ=Asia/Shanghai
+      # 数据库配置（请根据实际情况修改）
+      - DB_HOST=${DB_HOST:-111.119.253.196}
+      - DB_PORT=${DB_PORT:-8806}
+      - DB_USER=${DB_USER:-root}
+      - DB_PASSWORD=${DB_PASSWORD:-123456}
+      - DB_NAME=${DB_NAME:-dev}
+      - DB_CHARSET=${DB_CHARSET:-utf8mb4}
+      # 应用配置
+      - FETCH_INTERVAL_SECONDS=${FETCH_INTERVAL_SECONDS:-300}
+      - HOST=0.0.0.0
+      - PORT=5000
+      - FLASK_DEBUG=${FLASK_DEBUG:-false}
+    labels:
+      # Watchtower 配置标签
+      - "com.centurylinklabs.watchtower.enable=true"
+      - "com.centurylinklabs.watchtower.monitor-only=false"
+    networks:
+      - electricity-network
+
+  watchtower:
+    image: containrrr/watchtower:latest
+    container_name: watchtower
+    restart: unless-stopped
+    environment:
+      - TZ=Asia/Shanghai
+      # Watchtower 配置
+      - WATCHTOWER_POLL_INTERVAL=300  # 5分钟检查一次
+      - WATCHTOWER_CLEANUP=true       # 清理旧镜像
+      - WATCHTOWER_INCLUDE_RESTARTING=true
+      - WATCHTOWER_INCLUDE_STOPPED=true
+      - WATCHTOWER_REVIVE_STOPPED=false
+      # 通知配置（可选）
+      - WATCHTOWER_NOTIFICATIONS=slack
+      - WATCHTOWER_NOTIFICATION_SLACK_HOOK_URL=${SLACK_WEBHOOK_URL}
+      - WATCHTOWER_NOTIFICATION_SLACK_IDENTIFIER=electricity-bill-watchtower
+      # 只监控特定容器
+      - WATCHTOWER_LABEL_ENABLE=true
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - electricity-network
+    depends_on:
+      - electricity-bill
+
+networks:
+  electricity-network:
+    driver: bridge
