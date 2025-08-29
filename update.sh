@@ -16,7 +16,11 @@ echo -e "${BLUE}[INFO]${NC} 开始更新电表可视化项目..."
 echo -e "${BLUE}[INFO]${NC} 拉取最新代码..."
 git pull
 
-# 2. 重新构建并启动服务
+# 2. 停止现有服务并清理
+echo -e "${BLUE}[INFO]${NC} 停止现有服务..."
+docker-compose -f docker-compose.local.yml down 2>/dev/null || true
+
+# 3. 重新构建并启动服务
 echo -e "${BLUE}[INFO]${NC} 重新构建并启动服务..."
 docker-compose -f docker-compose.local.yml up -d --build
 
