@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   electricity-bill:
-    image: ghcr.io/${GITHUB_REPOSITORY:-jinbao55/electricitybill}:latest
+    build: .  # 使用本地 Dockerfile 构建
     container_name: electricity-bill
     restart: unless-stopped
     ports:

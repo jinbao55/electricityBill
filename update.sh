@@ -18,15 +18,15 @@ git pull
 
 # 2. 停止现有服务并清理
 echo -e "${BLUE}[INFO]${NC} 停止现有服务..."
-docker-compose -f docker-compose.local.yml down 2>/dev/null || true
+docker-compose down 2>/dev/null || true
 
 # 3. 重新构建并启动服务
 echo -e "${BLUE}[INFO]${NC} 重新构建并启动服务..."
-docker-compose -f docker-compose.local.yml up -d --build
+docker-compose up -d --build
 
 # 3. 显示服务状态
 echo -e "${BLUE}[INFO]${NC} 服务状态："
-docker-compose -f docker-compose.local.yml ps
+docker-compose ps
 
 # 4. 测试服务
 echo -e "${BLUE}[INFO]${NC} 测试服务..."
@@ -38,6 +38,6 @@ fi
 
 echo ""
 echo "管理命令："
-echo "  查看日志: docker-compose -f docker-compose.local.yml logs -f"
-echo "  重启服务: docker-compose -f docker-compose.local.yml restart"
-echo "  停止服务: docker-compose -f docker-compose.local.yml down"
+echo "  查看日志: docker-compose logs -f"
+echo "  重启服务: docker-compose restart"
+echo "  停止服务: docker-compose down"
