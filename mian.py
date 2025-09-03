@@ -57,13 +57,14 @@ def fetch_meter_data(device_id):
     except:
         return None
 
-    meter_id_match = re.search(r'<label\s+id=["\']metid["\'].*?>(\d+)</label>', html_text, re.S)
+    meter_id_match = re.search(r'<label\s+id=["\']metid["\'][^>]*>(\d+)</label>', html_text)
     meter_id = meter_id_match.group(1) if meter_id_match else None
-    balance_match = re.search(r'当前剩余.*?<label[^>]*>([\d.]+)</label>', html_text, re.S)
-    balance = float(balance_match.group(1)) if balance_match else None
 
-    if not meter_id or balance is None: return None
-    return {"meter_no": meter_id, "remain": balance, "collected_at": now_cn()}
+    power_match = re.search(r'剩余电量:</span>\s*<label[^>]*>([\d.]+)</label>', html_text)
+    power = float(power_match.group(1)) if power_match else None
+
+    if not meter_id or power is None: return None
+    return {"meter_no": meter_id, "remain": power, "collected_at": now_cn()}
 
 def save_to_db(data):
     conn = pymysql.connect(**DB_CONFIG)
