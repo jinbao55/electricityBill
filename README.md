@@ -3,22 +3,21 @@
 [![Docker Build](https://github.com/jinbao55/electricitybill/actions/workflows/docker-build.yml/badge.svg)](https://github.com/jinbao55/electricitybill/actions/workflows/docker-build.yml)
 
 ### 项目目的
-- 本项目通过定时抓取余额、入库，并计算“当日/近7天/近30天”的用电趋势，让手机端直观查看用电量与余额变化。
+本项目通过定时抓取余额、入库，并计算"当日/近7天/近30天"的用电趋势，让手机端直观查看用电量与余额变化。
 
 ### 主要功能
-- H5 页面（移动端优先）：
+- **H5 页面**（移动端优先）：
   - 顶部 KPI：当日用电、当前余额、较昨日/较上周期、预计可用天数
-  - 两张图：
-    - 用电量（折线，波浪填充，上方）
-    - 余额（柱状，下方）
-  - 支持选择日期（默认今天）或切换“今日/近7天 / 近30天”并显示当前时间范围
+  - 两张图表：用电量（折线图）+ 余额（柱状图）
+  - 支持选择日期或切换"今日/近7天/近30天"模式
   - 数值统一保留两位小数，横向可滑动
-- 后端 API：`/data`、`/kpi`、`/period_kpi`、`/fetch`
-- 定时抓取：APScheduler 后台任务，默认每 300 秒抓取一次；启动时自动触发一次抓取避免空白
+- **后端 API**：`/data`、`/kpi`、`/period_kpi`、`/fetch`
+- **定时抓取**：APScheduler 后台任务，默认每 300 秒抓取一次
 
-### 依赖
+### 系统依赖
 - Python 3.9+
-- Flask, requests, PyMySQL, APScheduler, python-dotenv（已在 `requirements.txt`）
+- Docker + Docker Compose
+- MySQL 数据库
 
 ### 数据库表结构
 ```sql
@@ -32,89 +31,140 @@ CREATE TABLE IF NOT EXISTS electricity_balance (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 ```
 
-### 运行方式
-#### 本地
+## 🚀 快速部署
+
+### 方法一：一键部署（推荐）
+```bash
+# 1. 克隆项目
+git clone https://github.com/jinbao55/electricitybill.git
+cd electricitybill
+
+# 2. 配置环境变量
+cp env.example .env
+nano .env  # 修改数据库配置
+
+# 3. 启动服务
+./deploy.sh start
+```
+
+### 方法二：手动 Docker 部署
+```bash
+# 1. 克隆项目
+git clone https://github.com/jinbao55/electricitybill.git
+cd electricitybill
+
+# 2. 配置环境
+cp env.example .env
+nano .env
+
+# 3. 启动服务
+docker-compose up -d --build
+```
+
+### 方法三：本地开发
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 python mian.py
 ```
 
-#### Docker（推荐）
+## ⚙️ 环境配置
 
-##### 🚀 一键部署（推荐）
+编辑 `.env` 文件：
 ```bash
-# 克隆项目
-git clone https://github.com/jinbao55/electricitybill.git
-cd electricitybill
+# 数据库配置
+DB_HOST=your-database-host
+DB_PORT=3306
+DB_USER=your-username
+DB_PASSWORD=your-password
+DB_NAME=your-database
 
-# 配置环境变量
-cp env.example .env
-nano .env  # 修改数据库配置
+# 应用配置
+FETCH_INTERVAL_SECONDS=300  # 数据抓取间隔（秒）
+```
 
-# 一键启动（包含自动更新）
+## 🔧 服务管理
+
+### 首次部署
+```bash
 ./deploy.sh start
 ```
 
-##### 📦 使用预构建镜像
+### 日常更新
 ```bash
-# 拉取最新镜像
-docker pull ghcr.io/jinbao55/electricitybill:latest
-
-# 启动容器
-docker run -d --name electricity-bill \
-  --restart unless-stopped \
-  -p 9136:5000 \
-  -e TZ=Asia/Shanghai \
-  -e DB_HOST=111.119.253.196 -e DB_PORT=8806 \
-  -e DB_USER=root -e DB_PASSWORD=123456 -e DB_NAME=dev \
-  -e FETCH_INTERVAL_SECONDS=300 \
-  --label com.centurylinklabs.watchtower.enable=true \
-  ghcr.io/jinbao55/electricitybill:latest
+./update.sh  # 拉取最新代码并重新构建
 ```
 
-##### 🔧 本地构建
+### 服务管理
 ```bash
-docker build -t electricity-bill:latest .
-docker run -d --name electricity-bill \
-  --restart unless-stopped \
-  -p 9136:5000 \
-  -e TZ=Asia/Shanghai \
-  electricity-bill:latest
+./deploy.sh status    # 查看服务状态
+./deploy.sh logs      # 查看服务日志
+./deploy.sh restart   # 重启服务
+./deploy.sh stop      # 停止服务
 ```
 
-### 配置（环境变量，均有默认值）
-- `DB_HOST` `DB_PORT` `DB_USER` `DB_PASSWORD` `DB_NAME` `DB_CHARSET`
-- `FETCH_INTERVAL_SECONDS`：抓取间隔（秒），默认 300
-- `HOST` `PORT` `FLASK_DEBUG`：Flask 运行参数
+### 手动 Docker 命令
+```bash
+docker-compose ps           # 查看容器状态
+docker-compose logs -f      # 查看实时日志
+docker-compose restart      # 重启服务
+docker-compose down         # 停止服务
+```
 
-### 使用说明（前端）
-- 顶部“日期”按钮：打开系统日期选择器（默认今天）。
-- “今日/近7天/近30天”按钮：切换周期；再次点击“日期”可回到按天模式。
-- 标题下方显示当前选择的日期或时间段。
+## 🌐 访问服务
 
-### 计算口径（核心逻辑）
-- 当日用电（KPI）
-  - 当日第一条余额 − 当日最后一条余额（若为负取 0）
-- 今天视图（小时趋势）
-  - 每小时余额：该小时“最后一条余额”
-  - 每小时用电：上一小时“最后一条余额” − 当前小时“最后一条余额”（负取 0）
-- 近7天/近30天视图（天趋势）
-  - 每天余额：当天“最后一条余额”
-  - 每天用电：同一天内相邻读数的“下降量之和”（上涨视为充值忽略）
-- 较昨日/较上周期
-  - 今日与昨日：使用 `/kpi`，充值感知（上涨记为充值，不计入用电）
-  - 周/月：使用 `/period_kpi` 比较“本周期总用电 − 上周期总用电”
+部署完成后访问：`http://your-server-ip:9136`
 
-### API 摘要
-- `GET /`：前端页面
-- `GET /data?period=day|week|month&device_id=ID&date=YYYY-MM-DD`：趋势数据
-- `GET /kpi?device_id=ID`：余额与当日/昨日用电、充值估计
-- `GET /period_kpi?period=week|month&device_id=ID`：本周期/上周期用电
-- `GET /fetch?device_id=ID`：立即抓取并入库（用于手动刷新）
+## 📊 功能特性
 
-### 设备配置
-在 `mian.py` 的 `DEVICE_LIST` 中维护：
+### 智能数据处理
+- **00点余额显示**：显示当日第一条余额记录
+- **其他时间余额**：显示该时间段最后一条余额记录
+- **用电量计算**：准确计算各时间段的用电消耗
+- **充值识别**：自动识别并排除充值对用电统计的影响
+
+### 响应式设计
+- **移动端优先**：针对手机浏览器优化
+- **图表交互**：支持缩放、滑动查看历史数据
+- **实时更新**：后台定时抓取，前端可手动刷新
+
+### 时间维度支持
+- **日视图**：24小时趋势，支持选择任意历史日期
+- **周视图**：近7天趋势对比
+- **月视图**：近30天趋势分析
+
+## 📈 计算逻辑
+
+### 当日用电（KPI）
+- **今日选择**：当日第一条余额 − 当日最后一条余额
+- **历史日期**：该日期首尾余额差值
+
+### 小时趋势（今天视图）
+- **每小时余额**：00点取第一条，其他小时取最后一条
+- **每小时用电**：上一小时余额 − 当前小时余额
+
+### 天趋势（近7天/近30天）
+- **每天余额**：当天最后一条余额
+- **每天用电**：同一天内相邻读数的下降量累加
+
+### 周期对比
+- **今日vs昨日**：使用 `/kpi` 接口，支持充值识别
+- **本周期vs上周期**：使用 `/period_kpi` 接口对比总用电量
+
+## 🔄 自动化特性
+
+### CI/CD 流程
+- **代码推送** → GitHub Actions 自动构建镜像
+- **服务更新** → 运行 `./update.sh` 更新部署
+- **容器监控** → Watchtower 监控容器状态
+
+### 定时任务
+- **数据抓取**：每5分钟自动抓取电表数据
+- **启动保护**：服务启动时立即抓取一次数据
+
+## 📋 设备配置
+
+在 `mian.py` 中配置监控设备：
 ```python
 DEVICE_LIST = [
     {"id": "19101109825", "name": "设备1"},
@@ -122,36 +172,98 @@ DEVICE_LIST = [
 ]
 ```
 
-### 常见问题
-- 页面空白/无数据：首次启动已自动抓取一次；也可点击“抓取”按钮；确认数据库连通性。
-- 时区偏差：应用已使用北京时间；如需，数据库会话可执行 `SET time_zone = '+08:00'`。
-- 端口：Docker 默认 5000，示例将宿主机 9136 映射到容器 5000。
+## 🔍 故障排查
 
-### 安全提示
-- 生产环境请通过环境变量传递数据库凭据，避免提交到仓库。
+### 服务无法启动
+```bash
+./deploy.sh logs  # 查看详细日志
+docker ps         # 检查容器状态
+```
 
-### 🚀 CI/CD 自动化部署
+### 数据库连接问题
+```bash
+# 测试数据库连接
+docker exec electricity-bill python -c "import pymysql; print('数据库连接测试')"
+```
 
-本项目支持 GitHub Actions + Watchtower 的全自动化部署流程。
+### 端口冲突
+```bash
+netstat -tlnp | grep 9136  # 检查端口占用
+```
 
-#### 特性
-- ✅ **自动构建**: 推送代码后自动构建 Docker 镜像
-- ✅ **自动部署**: Watchtower 检测镜像更新并自动重启容器
-- ✅ **多架构支持**: 支持 AMD64 和 ARM64 架构
-- ✅ **零停机更新**: 滚动更新，服务不中断
-- ✅ **通知提醒**: 支持 Slack/邮件通知部署状态
+## 📁 项目结构
 
-#### 快速启用
+```
+electricityBill/
+├── mian.py              # 主应用程序
+├── requirements.txt     # Python 依赖
+├── Dockerfile          # Docker 镜像构建
+├── docker-compose.yml  # Docker 编排配置
+├── deploy.sh           # 部署管理脚本
+├── update.sh           # 更新脚本
+├── env.example         # 环境配置模板
+├── .env               # 环境配置文件（需创建）
+├── templates/         # 前端模板
+│   └── index.html     # 主页面
+└── .github/workflows/ # GitHub Actions
+    └── docker-build.yml
+```
 
-1. **推送到 GitHub**: 代码推送后自动触发构建
-2. **配置 Watchtower**: 
-   ```bash
-   ./deploy.sh start  # 一键启动应用和自动更新
-   ```
-3. **享受自动化**: 以后每次代码更新都会自动部署
+## 🚀 在其他机器部署
 
-详细配置请参考 [DEPLOYMENT.md](./DEPLOYMENT.md)
+```bash
+# 方法一：Git 克隆
+git clone https://github.com/jinbao55/electricitybill.git
+cd electricitybill
+cp env.example .env && nano .env
+./deploy.sh start
 
-### 许可
-仅用于个人学习与使用场景；抓取频率请合理设置，避免对第三方服务造成压力。
+# 方法二：更新现有部署
+./update.sh
+```
 
+## 🛠️ 开发指南
+
+### 本地开发环境
+```bash
+# 创建虚拟环境
+python3 -m venv .venv
+source .venv/bin/activate
+
+# 安装依赖
+pip install -r requirements.txt
+
+# 配置环境变量
+cp env.example .env && nano .env
+
+# 运行开发服务器
+python mian.py
+```
+
+
+## 📝 API 接口
+
+- `GET /` - 前端页面
+- `GET /data?period=day|week|month&device_id=ID&date=YYYY-MM-DD` - 获取趋势数据
+- `GET /kpi?device_id=ID` - 获取KPI数据（余额、当日/昨日用电）
+- `GET /period_kpi?period=week|month&device_id=ID` - 获取周期对比数据
+- `GET /fetch?device_id=ID` - 手动触发数据抓取
+
+## 🔒 安全建议
+
+- 通过环境变量配置敏感信息，避免硬编码
+- 定期备份数据库数据
+- 设置适当的抓取频率，避免对数据源造成压力
+- 生产环境建议使用反向代理（Nginx）
+
+## 📞 技术支持
+
+- 查看日志：`./deploy.sh logs`
+- 检查状态：`./deploy.sh status`
+- 重启服务：`./deploy.sh restart`
+
+---
+
+## 许可证
+
+仅用于个人学习与使用场景。
