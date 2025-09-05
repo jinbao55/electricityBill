@@ -148,13 +148,15 @@ def get_statistics(period="day", device_id=None, target_date=None):
                 else:
                     balances.append(last_by_hour.get(h, None))
 
-            # 计算每小时用电：hour0 用 prev_remain - hour0_first，其他小时用 prev_hour_last - curr_hour_last
+            # 计算每小时用电：处理充值情况
             for h in range(24):
                 if h == 0:
                     # 00点用电 = 前一天最后余额 - 00点第一条余额
                     first_val_00 = first_by_hour.get(0, None)
                     if prev_remain is not None and first_val_00 is not None:
-                        usage.append(max(prev_remain - first_val_00, 0))
+                        # 如果00点余额比前一天高，可能有充值，只计算下降部分
+                        usage_val = prev_remain - first_val_00
+                        usage.append(max(usage_val, 0) if usage_val <= prev_remain else 0)
                     else:
                         usage.append(0)
                 else:
@@ -166,7 +168,11 @@ def get_statistics(period="day", device_id=None, target_date=None):
                         prev_last = last_by_hour.get(h - 1, None)
                     curr_last = last_by_hour.get(h, None)
                     if prev_last is not None and curr_last is not None:
-                        usage.append(max(prev_last - curr_last, 0))
+                        # 处理充值：如果当前小时余额比上小时高，说明充值了
+                        if curr_last > prev_last:
+                            usage.append(0)  # 充值时段用电为0
+                        else:
+                            usage.append(max(prev_last - curr_last, 0))
                     else:
                         usage.append(0)
 
@@ -211,22 +217,25 @@ def get_statistics(period="day", device_id=None, target_date=None):
                 day_key = str(ts.date())
                 # 更新当日最后余额
                 last_by_day[day_key] = rem
-                # 计算当日内部下降（只在同一天的连续两条读数之间计算）
+                # 计算当日内部下降（只在同一天的连续两条读数之间计算，处理充值）
                 if prev_ts is not None:
                     cur_day = day_key
                     if prev_day == cur_day and prev_remain_iter is not None:
-                        drop = prev_remain_iter - rem
-                        if drop > 0:
-                            usage_by_day[cur_day] = usage_by_day.get(cur_day, 0.0) + drop
+                        # 如果余额增加，说明充值了，不计算用电
+                        if rem <= prev_remain_iter:
+                            drop = prev_remain_iter - rem
+                            if drop > 0:
+                                usage_by_day[cur_day] = usage_by_day.get(cur_day, 0.0) + drop
                 prev_ts = ts
                 prev_remain_iter = rem
                 prev_day = day_key
 
-            # 把 start_time 之前的最近一条记录和当天第一条读数之间的下降计入首日（避免漏算跨午夜下降）
+            # 把 start_time 之前的最近一条记录和当天第一条读数之间的下降计入首日（避免漏算跨午夜下降，处理充值）
             if prev_remain is not None and rows:
                 first_row = rows[0]
                 first_day = str(first_row['collected_at'].date())
                 first_rem = float(first_row['remain']) if first_row['remain'] is not None else None
+                # 只有在余额下降时才计算用电（避免充值被误算为用电）
                 if first_rem is not None and prev_remain > first_rem:
                     usage_by_day[first_day] = usage_by_day.get(first_day, 0.0) + (prev_remain - first_rem)
 
@@ -256,12 +265,13 @@ def _compute_total_usage(conn, device_id, start_time, end_time):
         cursor.execute(sql, (device_id, start_time, end_time))
         total = 0.0
         prev = None
-        for ts, rem in cursor.fetchall():
+        for _, rem in cursor.fetchall():
             try:
                 rem_f = float(rem)
             except Exception:
                 continue
             if prev is not None:
+                # 只计算余额下降，避免充值被算作负用电
                 drop = prev - rem_f
                 if drop > 0:
                     total += drop
@@ -305,6 +315,61 @@ def _get_latest_balance(conn, device_id):
     finally:
         cursor.close()
 
+def _calculate_daily_usage_with_recharge(conn, device_id, target_date):
+    """计算指定日期的真实用电量，处理充值情况"""
+    cursor = conn.cursor()
+    try:
+        start_time = target_date.replace(hour=0, minute=0, second=0, microsecond=0)
+        end_time = start_time + timedelta(days=1)
+        
+        # 获取当天所有读数
+        sql = """
+            SELECT collected_at, remain
+            FROM electricity_balance
+            WHERE meter_no=%s AND collected_at >= %s AND collected_at < %s
+            ORDER BY collected_at
+        """
+        cursor.execute(sql, (device_id, start_time, end_time))
+        today_records = cursor.fetchall()
+        
+        if not today_records:
+            return 0.0
+            
+        # 获取昨天最后一条读数作为起始点
+        prev_sql = """
+            SELECT remain FROM electricity_balance
+            WHERE meter_no=%s AND collected_at < %s
+            ORDER BY collected_at DESC LIMIT 1
+        """
+        cursor.execute(prev_sql, (device_id, start_time))
+        prev_row = cursor.fetchone()
+        prev_balance = float(prev_row[0]) if prev_row else None
+        
+        total_usage = 0.0
+        last_balance = prev_balance
+        
+        for _, remain in today_records:
+            current_balance = float(remain) if remain is not None else None
+            if current_balance is None or last_balance is None:
+                last_balance = current_balance
+                continue
+                
+            # 如果余额增加，说明充值了，不计算这段的"用电"
+            if current_balance > last_balance:
+                # 充值，更新基准但不计算用电
+                pass
+            else:
+                # 正常用电，累加消耗
+                usage = last_balance - current_balance
+                if usage > 0:
+                    total_usage += usage
+                    
+            last_balance = current_balance
+            
+        return total_usage
+    finally:
+        cursor.close()
+
 @app.route("/kpi")
 def kpi():
     device_id = request.args.get("device_id")
@@ -318,18 +383,15 @@ def kpi():
         day_before = now - timedelta(days=2)
         y_last = _get_last_balance_for_date(conn, device_id, yesterday) if device_id else None
         db_last = _get_last_balance_for_date(conn, device_id, day_before) if device_id else None
-        # 充值感知：若今天余额较昨天最后一条更高，则判定有充值
-        # 今日用电按：max(昨日最后余额 - 当前余额, 0)
-        # 昨日用电按：max(前日最后余额 - 昨日最后余额, 0)
-        # 充值估计：max(当前余额 - 昨日最后余额, 0)
+        
+        # 使用新的算法计算真实用电量（处理充值）
+        usage_today = _calculate_daily_usage_with_recharge(conn, device_id, now) if device_id else None
+        usage_yesterday = _calculate_daily_usage_with_recharge(conn, device_id, yesterday) if device_id else None
+        
+        # 充值检测：当前余额比昨天最后余额高
         recharge_today = None
-        usage_today = None
-        usage_yesterday = None
         if current_balance is not None and y_last is not None:
-            recharge_today = max(current_balance - y_last, 0.0)
-            usage_today = max(y_last - current_balance, 0.0)
-        if y_last is not None and db_last is not None:
-            usage_yesterday = max(db_last - y_last, 0.0)
+            recharge_today = max(current_balance - y_last - (usage_today or 0), 0.0)
 
         return {
             "current_balance": current_balance,
