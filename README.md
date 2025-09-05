@@ -65,7 +65,7 @@ docker-compose up -d --build
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-python mian.py
+python main.py
 ```
 
 ## ⚙️ 环境配置
@@ -164,7 +164,7 @@ docker-compose down         # 停止服务
 
 ## 📋 设备配置
 
-在 `mian.py` 中配置监控设备：
+在 `main.py` 中配置监控设备：
 ```python
 DEVICE_LIST = [
     {"id": "19101109825", "name": "设备1"},
@@ -195,7 +195,7 @@ netstat -tlnp | grep 9136  # 检查端口占用
 
 ```
 electricityBill/
-├── mian.py              # 主应用程序
+├── main.py              # 主应用程序
 ├── requirements.txt     # Python 依赖
 ├── Dockerfile          # Docker 镜像构建
 ├── docker-compose.yml  # Docker 编排配置
@@ -237,7 +237,7 @@ pip install -r requirements.txt
 cp env.example .env && nano .env
 
 # 运行开发服务器
-python mian.py
+python main.py
 ```
 
 

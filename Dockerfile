@@ -19,8 +19,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 EXPOSE 5000
 
 # 定义环境变量（可选）
-ENV FLASK_APP=mian.py
+ENV FLASK_APP=main.py
 ENV FLASK_ENV=production
 
 # 启动应用
-CMD ["python", "mian.py"]
+CMD ["python", "main.py"]

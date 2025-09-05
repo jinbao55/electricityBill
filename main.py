@@ -342,6 +342,7 @@ def _calculate_daily_usage_with_recharge(conn, device_id, target_date):
             ORDER BY collected_at DESC LIMIT 1
         """
         cursor.execute(prev_sql, (device_id, start_time))
+        
         prev_row = cursor.fetchone()
         prev_balance = float(prev_row[0]) if prev_row else None
         

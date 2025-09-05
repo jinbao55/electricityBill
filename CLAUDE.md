@@ -8,7 +8,7 @@ This is a Chinese electricity meter monitoring application that provides real-ti
 
 ## Architecture
 
-- **Backend**: Flask web server (mian.py) with APScheduler for periodic data collection
+- **Backend**: Flask web server (main.py) with APScheduler for periodic data collection
 - **Frontend**: Single HTML template with Chart.js for data visualization
 - **Database**: MySQL with `electricity_balance` table storing meter readings
 - **Deployment**: Docker + Docker Compose with Watchtower for auto-updates
@@ -16,11 +16,11 @@ This is a Chinese electricity meter monitoring application that provides real-ti
 
 ## Key Components
 
-### Main Application (mian.py:1)
+### Main Application (main.py:1)
 - Flask routes for API endpoints and web interface
 - Scheduled data collection using APScheduler
 - Time zone handling for China Standard Time (UTC+8)
-- Device configuration in `DEVICE_LIST` (mian.py:26-29)
+- Device configuration in `DEVICE_LIST` (main.py:26-29)
 
 ### Database Schema
 ```sql
@@ -53,7 +53,7 @@ cp env.example .env
 # Edit .env with database credentials
 
 # Run development server
-python mian.py
+python main.py
 ```
 
 ### Docker Development
@@ -118,7 +118,7 @@ Access the application at `http://localhost:9136` after deployment.
 
 ## Device Configuration
 
-Update monitored devices in mian.py:26-29:
+Update monitored devices in main.py:26-29:
 ```python
 DEVICE_LIST = [
     {"id": "19101109825", "name": "设备名称1"},
