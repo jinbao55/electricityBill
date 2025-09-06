@@ -1,4 +1,4 @@
-from flask import Flask, render_template, render_template_string, request, jsonify
+from flask import Flask, render_template, render_template_string, request, jsonify, g
 import os
 from dotenv import load_dotenv
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -8,6 +8,7 @@ import pymysql
 from datetime import datetime, timedelta, timezone
 import threading
 import time
+from functools import lru_cache
 
 load_dotenv()
 
@@ -45,8 +46,37 @@ app = Flask(__name__)
 HTML_TEMPLATE = None
 
 # -----------------------
-# 数据抓取
+# 数据库连接池优化
 # -----------------------
+def get_db():
+    """获取数据库连接，使用Flask的g对象实现连接复用"""
+    if 'db_conn' not in g:
+        g.db_conn = pymysql.connect(**DB_CONFIG)
+    return g.db_conn
+
+@app.teardown_appcontext
+def close_db(error):
+    """请求结束时关闭数据库连接"""
+    db = g.pop('db_conn', None)
+    if db is not None:
+        db.close()
+
+# -----------------------
+# 缓存机制优化
+# -----------------------
+@lru_cache(maxsize=50)
+def get_cached_statistics(period, device_id, target_date, cache_key):
+    """缓存统计数据查询结果，cache_key用于缓存过期控制"""
+    return get_statistics_raw(period, device_id, target_date)
+
+@lru_cache(maxsize=20)
+def get_cached_kpi(device_id, target_date, cache_key):
+    """缓存KPI数据查询结果"""
+    return get_kpi_raw(device_id, target_date)
+
+def get_cache_key():
+    """生成缓存键，5分钟更新一次"""
+    return int(time.time() // 300)  # 5分钟缓存周期
 def fetch_meter_data(device_id):
     url = f"http://www.wap.cnyiot.com/nat/pay.aspx?mid={device_id}"
     headers={"User-Agent":"Mozilla/5.0"}
@@ -78,10 +108,11 @@ def save_to_db(data):
         conn.close()
 
 # -----------------------
-# 数据统计
+# 数据统计（原始版本，供缓存调用）
 # -----------------------
-def get_statistics(period="day", device_id=None, target_date=None):
-    conn = pymysql.connect(**DB_CONFIG)
+def get_statistics_raw(period="day", device_id=None, target_date=None):
+    """原始统计数据查询函数，使用连接池"""
+    conn = get_db()
     cursor = conn.cursor(pymysql.cursors.DictCursor)
     try:
         now = now_cn()
@@ -198,7 +229,12 @@ def get_statistics(period="day", device_id=None, target_date=None):
         return labels, balances, usage
     finally:
         cursor.close()
-        conn.close()
+
+# 统计数据接口（使用缓存）
+def get_statistics(period="day", device_id=None, target_date=None):
+    """缓存版本的统计数据接口"""
+    cache_key = get_cache_key()
+    return get_cached_statistics(period, device_id, target_date, cache_key)
 
 
 def _compute_total_usage(conn, device_id, start_time, end_time):
