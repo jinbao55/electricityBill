@@ -507,6 +507,90 @@ def period_kpi():
     finally:
         conn.close()
 
+@app.route("/recharge_history")
+def recharge_history():
+    """获取充值历史记录"""
+    device_id = request.args.get("device_id")
+    days = int(request.args.get("days", "30"))  # 默认查询30天
+    limit = int(request.args.get("limit", "50"))  # 默认返回50条记录
+    
+    if not device_id:
+        device_id = DEVICE_LIST[0]["id"] if DEVICE_LIST else None
+    
+    if not device_id:
+        return {"recharges": [], "message": "没有可用的设备"}
+    
+    conn = get_db()
+    cursor = conn.cursor(pymysql.cursors.DictCursor)
+    try:
+        now = now_cn()
+        start_time = (now - timedelta(days=days)).replace(hour=0, minute=0, second=0, microsecond=0)
+        
+        # 查询指定时间范围内的所有余额记录
+        sql = """
+            SELECT collected_at, remain
+            FROM electricity_balance
+            WHERE meter_no=%s AND collected_at >= %s
+            ORDER BY collected_at ASC
+        """
+        cursor.execute(sql, (device_id, start_time))
+        records = cursor.fetchall()
+        
+        if not records:
+            return {"recharges": [], "message": "暂无充值记录"}
+        
+        recharges = []
+        prev_record = None
+        
+        for record in records:
+            current_time = record['collected_at']
+            current_remain = float(record['remain']) if record['remain'] is not None else None
+            
+            if current_remain is None:
+                continue
+                
+            if prev_record is not None:
+                prev_remain = float(prev_record['remain']) if prev_record['remain'] is not None else None
+                
+                if prev_remain is not None and current_remain > prev_remain:
+                    # 检测到可能的充值
+                    balance_increase = current_remain - prev_remain
+                    
+                    # 充值验证：余额增加≥8元时，四舍五入到最近的10的整数倍
+                    if balance_increase >= 8:
+                        # 四舍五入到最近的10的整数倍
+                        estimated_recharge = round(balance_increase / 10) * 10
+                        
+                        # 确保估算的充值金额与实际增加值的差异不超过5元，且≥10元
+                        if estimated_recharge >= 10 and abs(estimated_recharge - balance_increase) <= 5:
+                            recharges.append({
+                                "recharge_time": current_time.strftime("%Y-%m-%d %H:%M:%S"),
+                                "recharge_date": current_time.strftime("%Y-%m-%d"),
+                                "recharge_amount": int(estimated_recharge),  # 估算的充值金额
+                                "balance_before": round(prev_remain, 2),
+                                "balance_after": round(current_remain, 2),
+                                "device_id": device_id
+                            })
+            
+            prev_record = record
+        
+        # 按时间倒序排列，最新的充值在前
+        recharges.reverse()
+        
+        # 限制返回数量
+        if limit > 0:
+            recharges = recharges[:limit]
+        
+        return {
+            "recharges": recharges,
+            "total_count": len(recharges),
+            "query_days": days,
+            "device_id": device_id
+        }
+        
+    finally:
+        cursor.close()
+
 @app.route("/fetch")
 def fetch():
     device_id = request.args.get("device_id","19101109825")

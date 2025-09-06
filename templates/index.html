@@ -156,6 +156,122 @@ canvas{width:100% !important;height:300px !important}
   }
 }
 
+/* 充值历史样式 */
+.recharge-history {
+  display: none;
+}
+
+.recharge-history.active {
+  display: block;
+}
+
+.recharge-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.recharge-filter {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.recharge-filter select {
+  padding: 6px 10px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  background: #fff;
+  font-size: 14px;
+}
+
+.recharge-summary {
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.recharge-list {
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.recharge-item {
+  background: var(--card);
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.06);
+  padding: 12px;
+  margin-bottom: 8px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  transition: all 0.2s ease;
+}
+
+.recharge-item:hover {
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.recharge-info {
+  flex: 1;
+}
+
+.recharge-date {
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 2px;
+}
+
+.recharge-time {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.recharge-amount {
+  text-align: right;
+}
+
+.recharge-money {
+  font-size: 18px;
+  font-weight: 600;
+  color: #16a34a;
+  margin-bottom: 2px;
+}
+
+.recharge-balance {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.no-recharge {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--muted);
+  font-size: 16px;
+}
+
+@media(max-width:768px){
+  .recharge-controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  .recharge-filter {
+    justify-content: space-between;
+  }
+  
+  .recharge-item {
+    padding: 10px;
+  }
+  
+  .recharge-money {
+    font-size: 16px;
+  }
+}
+
 </style>
 </head>
 <body>
@@ -170,6 +286,7 @@ canvas{width:100% !important;height:300px !important}
     <button class="period-btn" id="todayBtn" data-period="day" onclick="showToday()">今日</button>
     <button class="period-btn" data-period="week" onclick="loadData('week')">近7天</button>
     <button class="period-btn" data-period="month" onclick="loadData('month')">近30天</button>
+    <button class="period-btn" id="rechargeBtn" onclick="showRechargeHistory()">充值历史</button>
     <button class="fetch-btn" onclick="fetchData()">抓取</button>
 
   </div>
@@ -177,48 +294,78 @@ canvas{width:100% !important;height:300px !important}
 
 <div class="container">
   <p id="rangeIndicator" class="range"></p>
-  <div class="kpis">
-    <div class="kpi">
-      <div class="label">当前余额</div>
-      <div class="value" id="kpi-balance">--</div>
-      <div class="sub">单位：元</div>
+  
+  <!-- 原有的统计界面 -->
+  <div id="statisticsView">
+    <div class="kpis">
+      <div class="kpi">
+        <div class="label">当前余额</div>
+        <div class="value" id="kpi-balance">--</div>
+        <div class="sub">单位：元</div>
+      </div>
+      <div class="kpi">
+        <div class="label" id="kpi-usage-label">今日用电</div>
+        <div class="value" id="kpi-today">--</div>
+        <div class="sub">单位：度</div>
+      </div>
+      <div class="kpi">
+        <div class="label" id="kpi-compare-label">较昨日</div>
+        <div class="value" id="kpi-compare">--</div>
+        <div class="sub" id="kpi-compare-sub"></div>
+      </div>
+      <div class="kpi">
+        <div class="label">预计可用天数</div>
+        <div class="value" id="kpi-days">--</div>
+        <div class="sub">基于近7天日均</div>
+      </div>
     </div>
-    <div class="kpi">
-      <div class="label" id="kpi-usage-label">今日用电</div>
-      <div class="value" id="kpi-today">--</div>
-      <div class="sub">单位：度</div>
+    <div class="section">
+      <div class="title">用电量趋势</div>
+      <div class="card">
+        <div class="chart-scroll" id="balanceScroll">
+          <div class="chart-inner" id="balanceChartInner">
+            <canvas id="balanceLineChart"></canvas>
+          </div>
+        </div>
+      </div>
     </div>
-    <div class="kpi">
-      <div class="label" id="kpi-compare-label">较昨日</div>
-      <div class="value" id="kpi-compare">--</div>
-      <div class="sub" id="kpi-compare-sub"></div>
-    </div>
-    <div class="kpi">
-      <div class="label">预计可用天数</div>
-      <div class="value" id="kpi-days">--</div>
-      <div class="sub">基于近7天日均</div>
-    </div>
-  </div>
-  <div class="section">
-    <div class="title">用电量趋势</div>
-    <div class="card">
-      <div class="chart-scroll" id="balanceScroll">
-        <div class="chart-inner" id="balanceChartInner">
-          <canvas id="balanceLineChart"></canvas>
+    <div class="section">
+      <div class="title">余额</div>
+      <div class="card">
+        <div class="chart-scroll" id="usageScroll">
+          <div class="chart-inner" id="usageChartInner">
+            <canvas id="usageBarChart"></canvas>
+          </div>
         </div>
       </div>
     </div>
   </div>
-  <div class="section">
-    <div class="title">余额</div>
-    <div class="card">
-      <div class="chart-scroll" id="usageScroll">
-        <div class="chart-inner" id="usageChartInner">
-          <canvas id="usageBarChart"></canvas>
+  
+  <!-- 充值历史界面 -->
+  <div id="rechargeHistoryView" class="recharge-history">
+    <div class="section">
+      <div class="title">💰 充值历史</div>
+      <div class="card">
+        <div class="recharge-controls">
+          <div class="recharge-filter">
+            <select id="rechargeDays">
+              <option value="7">近7天</option>
+              <option value="30" selected>近30天</option>
+              <option value="90">近90天</option>
+            </select>
+            <button class="period-btn" onclick="loadRechargeHistory()">刷新</button>
+          </div>
+          <div class="recharge-summary" id="rechargeSummary">
+            --
+          </div>
+        </div>
+        <div class="recharge-list" id="rechargeList">
+          <div class="no-recharge">加载中...</div>
         </div>
       </div>
     </div>
   </div>
+  
   <p id="status" class="status"></p>
 </div>
 
@@ -561,10 +708,104 @@ function showToday(){
     // 第二个参数 false 表示不触发 onChange 回调——我们下面手动调用 loadData
     datePicker.setDate(currentDate, false);
   }
+  // 显示统计视图，隐藏充值历史
+  showStatisticsView();
   // 设置按钮高亮
   document.querySelectorAll('.period-btn').forEach(btn=>btn.classList.remove('active'));
   document.getElementById('todayBtn').classList.add('active');
   loadData('day');
+}
+
+/* 显示充值历史 */
+function showRechargeHistory(){
+  currentPeriod = 'recharge';
+  // 显示充值历史视图，隐藏统计视图
+  showRechargeView();
+  // 设置按钮高亮
+  document.querySelectorAll('.period-btn').forEach(btn=>btn.classList.remove('active'));
+  document.getElementById('rechargeBtn').classList.add('active');
+  // 更新范围指示器
+  document.getElementById('rangeIndicator').textContent = '充值历史记录';
+  // 加载充值历史数据
+  loadRechargeHistory();
+}
+
+/* 显示统计视图 */
+function showStatisticsView(){
+  document.getElementById('statisticsView').style.display = 'block';
+  document.getElementById('rechargeHistoryView').classList.remove('active');
+}
+
+/* 显示充值历史视图 */
+function showRechargeView(){
+  document.getElementById('statisticsView').style.display = 'none';
+  document.getElementById('rechargeHistoryView').classList.add('active');
+}
+
+/* 加载充值历史数据 */
+function loadRechargeHistory(){
+  const deviceId = document.getElementById('deviceSelect').value;
+  const days = document.getElementById('rechargeDays').value;
+  
+  document.getElementById('status').textContent = '加载充值历史...';
+  
+  fetch(`/recharge_history?device_id=${deviceId}&days=${days}`)
+    .then(r => r.json())
+    .then(data => {
+      renderRechargeHistory(data);
+      document.getElementById('status').textContent = '';
+    })
+    .catch(err => {
+      console.error('加载充值历史失败:', err);
+      document.getElementById('status').textContent = '加载充值历史失败';
+      document.getElementById('rechargeList').innerHTML = '<div class="no-recharge">加载失败，请重试</div>';
+    });
+}
+
+/* 渲染充值历史记录 */
+function renderRechargeHistory(data){
+  const recharges = data.recharges || [];
+  const totalCount = data.total_count || 0;
+  const queryDays = data.query_days || 30;
+  
+  // 更新摘要信息
+  const summaryEl = document.getElementById('rechargeSummary');
+  if(totalCount === 0){
+    summaryEl.textContent = `近${queryDays}天无充值记录`;
+  } else {
+    const totalAmount = recharges.reduce((sum, r) => sum + (r.recharge_amount || 0), 0);
+    summaryEl.textContent = `近${queryDays}天共${totalCount}次充值，累计${totalAmount.toFixed(2)}元`;
+  }
+  
+  // 渲染充值记录列表
+  const listEl = document.getElementById('rechargeList');
+  if(recharges.length === 0){
+    listEl.innerHTML = '<div class="no-recharge">📭 暂无充值记录</div>';
+    return;
+  }
+  
+  const rechargeItems = recharges.map(recharge => {
+    const date = recharge.recharge_date;
+    const time = recharge.recharge_time;
+    const amount = recharge.recharge_amount;
+    const balanceBefore = recharge.balance_before;
+    const balanceAfter = recharge.balance_after;
+    
+    return `
+      <div class="recharge-item">
+        <div class="recharge-info">
+          <div class="recharge-date">${date}</div>
+          <div class="recharge-time">${time}</div>
+        </div>
+        <div class="recharge-amount">
+          <div class="recharge-money">+${amount}元</div>
+          <div class="recharge-balance">${balanceBefore} → ${balanceAfter}</div>
+        </div>
+      </div>
+    `;
+  }).join('');
+  
+  listEl.innerHTML = rechargeItems;
 }
 
 /* 页面初始化：解析 devices-json、初始化 flatpickr、初始化事件 */
