@@ -228,7 +228,7 @@ let devices = [];
 const isMobile = window.matchMedia('(max-width: 768px)').matches;
 let usageLineChart = null, balanceBarChart = null;
 let currentPeriod = 'day';
-let currentDate = new Date().toISOString().slice(0,10);
+let currentDate = getTodayInChina(); // 使用中国时区的今日
 let datePicker = null;
 
 /* 注册 ChartDataLabels（如果被加载） */
@@ -238,6 +238,35 @@ if (window.Chart && window.ChartDataLabels) {
 
 /* 小工具：安全格式化数字 */
 function fmt(n){ return Number(n ?? 0).toFixed(2); }
+
+/* 获取中国时区的今日日期字符串（YYYY-MM-DD），避免UTC时区问题 */
+function getTodayInChina(){
+  // 获取中国时区（UTC+8）的当前日期
+  const now = new Date();
+  const chinaTime = new Date(now.getTime() + (8 * 60 * 60 * 1000)); // UTC+8
+  const year = chinaTime.getUTCFullYear();
+  const month = String(chinaTime.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(chinaTime.getUTCDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+/* 检查并更新日期，解决跨日问题 */
+function checkAndUpdateDate(){
+  const newToday = getTodayInChina();
+  if(currentDate !== newToday && currentPeriod === 'day'){
+    // 如果当前显示的是"今日"模式，且日期已跨日，自动更新
+    const todayBtnActive = document.getElementById('todayBtn').classList.contains('active');
+    if(todayBtnActive){
+      currentDate = newToday;
+      if(datePicker){
+        datePicker.setDate(currentDate, false);
+      }
+      // 自动刷新数据
+      loadData('day');
+      console.log('Auto-updated to new day:', newToday);
+    }
+  }
+}
 
 /* 安全将后端的 ISO 日期字符串转换为 "月-日"（避免 new Date 在不同浏览器的兼容问题） */
 function shortLabelFromISO(d){
@@ -341,9 +370,19 @@ function updateKpis(period, chartData = {}, dayData = {}, weekData = {}){
   const fmtVal = (n)=>Number(n ?? 0).toFixed(2);
   const deviceId = document.getElementById('deviceSelect').value;
   
+  // 构建 KPI 请求参数
+  let kpiParams = `device_id=${deviceId}`;
+  if(period === 'day'){
+    // 日模式：如果选择了历史日期，传入 date 参数
+    const todayStr = getTodayInChina(); // 使用中国时区
+    if(currentDate !== todayStr){
+      kpiParams += `&date=${encodeURIComponent(currentDate)}`;
+    }
+  }
+  
   // 并行获取基础数据
   Promise.all([
-    fetch(`/kpi?device_id=${deviceId}`).then(r=>r.json()).catch(()=>({})),
+    fetch(`/kpi?${kpiParams}`).then(r=>r.json()).catch(()=>({})),
     period !== 'day' ? fetch(`/period_kpi?period=${period}&device_id=${deviceId}`).then(r=>r.json()).catch(()=>({})) : Promise.resolve({})
   ]).then(([kpiData = {}, periodData = {}])=>{
     const currentBalance = Number(kpiData.current_balance ?? 0);
@@ -355,41 +394,21 @@ function updateKpis(period, chartData = {}, dayData = {}, weekData = {}){
     let rechargeInfo = '';
     
     if(period === 'day'){
-      // 日模式：判断是否选择的今日
-      const todayStr = new Date().toISOString().slice(0,10);
+      // 日模式：直接使用后端计算好的用电量
+      const todayStr = getTodayInChina(); // 使用中国时区
       const isToday = currentDate === todayStr;
       
+      // 使用后端计算的准确数据（已处理充值情况）
+      currentUsage = Number(kpiData.usage_today ?? kpiData.usage_target ?? 0);
+      previousUsage = Number(kpiData.usage_yesterday ?? 0);
+      
       if(isToday){
-        // 选择今日：优先使用 /kpi 接口数据
-        currentUsage = Number(kpiData.usage_today ?? 0);
-        previousUsage = Number(kpiData.usage_yesterday ?? 0);
+        // 今日模式
         const rechargeToday = Number(kpiData.recharge_today ?? 0);
-        
-        // 回退计算：如果 /kpi 没有数据，用 dayData 计算
-        if(currentUsage === 0 && dayData.balances){
-          const balances = Array.isArray(dayData.balances) ? dayData.balances : [];
-          const valid = balances.filter(v => v !== null && v !== undefined && !isNaN(Number(v))).map(Number);
-          if(valid.length >= 2){
-            currentUsage = Math.max(valid[0] - valid[valid.length - 1], 0);
-          }
-        }
-        
         compareText = `昨日 ${fmtVal(previousUsage)}，今日 ${fmtVal(currentUsage)}`;
         if(rechargeToday > 0) rechargeInfo = `，充值 ${fmtVal(rechargeToday)}`;
-        
       } else {
-        // 选择非今日：使用 chartData 计算该日期的用电量（chartData 包含正确的日期数据）
-        const balances = Array.isArray(chartData.balances) ? chartData.balances : [];
-        const valid = balances.filter(v => v !== null && v !== undefined && !isNaN(Number(v))).map(Number);
-        
-        if(valid.length >= 2){
-          currentUsage = Math.max(valid[0] - valid[valid.length - 1], 0);
-        } else {
-          currentUsage = 0;
-        }
-        
-        // 对于历史日期，不显示对比数据和预计天数
-        previousUsage = 0;
+        // 历史日期模式
         compareText = `${currentDate} 当日用电`;
       }
       
@@ -410,7 +429,7 @@ function updateKpis(period, chartData = {}, dayData = {}, weekData = {}){
     document.getElementById('kpi-today').textContent = fmtVal(currentUsage);
     
     // 判断是否为今日或今日模式，决定是否显示对比和预计天数
-    const todayStr = new Date().toISOString().slice(0,10);
+    const todayStr = getTodayInChina(); // 使用中国时区
     const isToday = currentDate === todayStr;
     const showComparison = (period === 'day' && isToday) || period !== 'day';
     
@@ -537,7 +556,7 @@ function fetchData(){
 /* 今日按钮：设置日期选择器为今天，并加载 day 数据；不要使用 datePicker._flatpickr（不可靠） */
 function showToday(){
   currentPeriod = 'day';
-  currentDate = new Date().toISOString().slice(0,10);
+  currentDate = getTodayInChina(); // 使用中国时区
   if(datePicker){
     // 第二个参数 false 表示不触发 onChange 回调——我们下面手动调用 loadData
     datePicker.setDate(currentDate, false);
@@ -572,7 +591,7 @@ document.addEventListener('DOMContentLoaded', ()=>{
       currentPeriod = 'day';
       // 先加载数据（默认会把 day 的按钮高亮），随后如果选中的不是今天，则取消今日按钮高亮
       loadData('day');
-      const todayStr = new Date().toISOString().slice(0,10);
+      const todayStr = getTodayInChina(); // 使用中国时区
       if(dateStr !== todayStr){
         // 取消今日按钮高亮（因为选中了其它日期）
         document.querySelectorAll('.period-btn').forEach(btn=>btn.classList.remove('active'));
@@ -586,6 +605,9 @@ document.addEventListener('DOMContentLoaded', ()=>{
 
   // 启动时显示今日
   showToday();
+  
+  // 设置定期检查机制，每30秒检查一次日期是否跨日
+  setInterval(checkAndUpdateDate, 30000); // 30秒检查一次
 });
 </script>
 
