@@ -11,8 +11,11 @@
   - 两张图表：用电量（折线图）+ 余额（柱状图）
   - 支持选择日期或切换"今日/近7天/近30天"模式
   - 数值统一保留两位小数，横向可滑动
-- **后端 API**：`/data`、`/kpi`、`/period_kpi`、`/fetch`
+  - **充值记录功能**：自动识别充值行为并记录充值历史
+- **后端 API**：`/data`、`/kpi`、`/period_kpi`、`/fetch`、`/recharge_history`、`/test_notification`
 - **定时抓取**：APScheduler 后台任务，默认每 300 秒抓取一次
+- **性能优化**：优化数据库查询和页面渲染性能
+- **微信通知**：支持Server酱微信推送，每日9点自动发送用电报告
 
 ### 系统依赖
 - Python 3.9+
@@ -81,6 +84,10 @@ DB_NAME=your-database
 
 # 应用配置
 FETCH_INTERVAL_SECONDS=300  # 数据抓取间隔（秒）
+
+# Server酱微信通知配置（可选）
+SERVER_CHAN_KEY_1=your-server-chan-key-1  # 设备1的SendKey
+SERVER_CHAN_KEY_2=your-server-chan-key-2  # 设备2的SendKey
 ```
 
 ## 🔧 服务管理
@@ -122,6 +129,8 @@ docker-compose down         # 停止服务
 - **其他时间余额**：显示该时间段最后一条余额记录
 - **用电量计算**：准确计算各时间段的用电消耗
 - **充值识别**：自动识别并排除充值对用电统计的影响
+- **数据修复**：修复0点进入页面无法正确刷新当日数据的问题
+- **历史记录优化**：修复充值后历史记录当日用电显示为0的情况
 
 ### 响应式设计
 - **移动端优先**：针对手机浏览器优化
@@ -161,6 +170,48 @@ docker-compose down         # 停止服务
 ### 定时任务
 - **数据抓取**：每5分钟自动抓取电表数据
 - **启动保护**：服务启动时立即抓取一次数据
+- **每日报告**：每天上午9点自动发送用电报告至微信（需配置Server酱）
+
+## 📱 微信通知配置
+
+本系统支持通过Server酱发送每日用电报告至微信，让您随时掌握用电情况。
+
+### 1. 获取Server酱SendKey
+
+1. 访问 [Server酱官网](https://sct.ftqq.com/)
+2. 使用微信扫码登录
+3. 复制您的SendKey
+
+### 2. 配置环境变量
+
+在 `.env` 文件中添加：
+```bash
+SERVER_CHAN_KEY_1=your-send-key-here  # 设备1的SendKey
+SERVER_CHAN_KEY_2=your-send-key-here  # 设备2的SendKey（如有多设备）
+```
+
+### 3. 通知功能说明
+
+- **自动发送时间**：每天上午9:00
+- **通知内容**：设备名称、昨日用电量、期初/期末余额、用电分析
+- **智能图标**：根据用电量自动显示不同图标
+  - 🔥 用电量 > 10度：用电较多
+  - ⚡ 用电量 5-10度：正常用电
+  - 💡 用电量 0-5度：用电较少
+  - 💤 用电量 ≈ 0度：几乎无用电
+
+### 4. 测试通知
+
+访问测试接口验证配置：
+```bash
+curl "http://your-server:9136/test_notification?device_id=19101109825"
+```
+
+### 5. 故障排查
+
+- **通知未收到**：检查SendKey是否正确配置
+- **发送失败**：查看系统日志 `./deploy.sh logs`
+- **数据异常**：通过 `/test_notification` 接口检查报告内容
 
 ## 📋 设备配置
 
@@ -248,6 +299,8 @@ python main.py
 - `GET /kpi?device_id=ID` - 获取KPI数据（余额、当日/昨日用电）
 - `GET /period_kpi?period=week|month&device_id=ID` - 获取周期对比数据
 - `GET /fetch?device_id=ID` - 手动触发数据抓取
+- `GET /recharge_history?device_id=ID&days=30&limit=50` - 获取充值历史记录
+- `GET /test_notification?device_id=ID` - 测试微信通知功能
 
 ## 🔒 安全建议
 

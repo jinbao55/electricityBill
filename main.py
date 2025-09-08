@@ -25,8 +25,16 @@ DB_CONFIG = {
 }
 
 DEVICE_LIST = [
-    {"id": "19101109825", "name": "牛魔王"},
-    {"id": "19104791678", "name": "孙悟空"},
+    {
+        "id": "19101109825", 
+        "name": "牛魔王",
+        "server_chan_key": os.getenv("SERVER_CHAN_KEY_1", ""),  # Server酱的SendKey
+    },
+    {
+        "id": "19104791678", 
+        "name": "孙悟空",
+        "server_chan_key": os.getenv("SERVER_CHAN_KEY_2", ""),  # Server酱的SendKey
+    },
 ]
 
 # -----------------------
@@ -419,6 +427,142 @@ def _calculate_daily_usage_with_recharge(conn, device_id, target_date):
     finally:
         cursor.close()
 
+# -----------------------
+# Server酱微信通知功能
+# -----------------------
+def send_server_chan_notification(send_key, title, desp=""):
+    """使用Server酱发送微信通知"""
+    if not send_key:
+        return {"success": False, "message": "SendKey未配置"}
+        
+    url = f"https://sctapi.ftqq.com/{send_key}.send"
+    data = {
+        "title": title,
+        "desp": desp
+    }
+    
+    try:
+        response = requests.post(url, data=data, timeout=10)
+        result = response.json()
+        
+        if result.get("code") == 0:
+            return {"success": True, "message": "发送成功"}
+        else:
+            return {"success": False, "message": f"发送失败: {result.get('message', '未知错误')}"}
+            
+    except Exception as e:
+        return {"success": False, "message": f"发送异常: {str(e)}"}
+
+def get_yesterday_report(device_id, device_name):
+    """获取昨日用电报告"""
+    try:
+        conn = pymysql.connect(**DB_CONFIG)
+        yesterday = (now_cn() - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+        
+        # 获取昨日用电量
+        yesterday_usage = _calculate_daily_usage_with_recharge(conn, device_id, yesterday)
+        
+        # 获取昨日结束时的余额
+        yesterday_last_balance = _get_last_balance_for_date(conn, device_id, yesterday)
+        
+        # 获取前天结束时的余额
+        day_before_yesterday = yesterday - timedelta(days=1)
+        day_before_last_balance = _get_last_balance_for_date(conn, device_id, day_before_yesterday)
+        
+        conn.close()
+        
+        return {
+            "device_name": device_name,
+            "date": yesterday.strftime("%Y年%m月%d日"),
+            "usage": round(yesterday_usage, 2) if yesterday_usage else 0,
+            "balance_start": round(day_before_last_balance, 2) if day_before_last_balance else "无数据",
+            "balance_end": round(yesterday_last_balance, 2) if yesterday_last_balance else "无数据"
+        }
+        
+    except Exception as e:
+        return {
+            "device_name": device_name,
+            "date": "昨日",
+            "usage": "获取失败",
+            "balance_start": "获取失败", 
+            "balance_end": "获取失败",
+            "error": str(e)
+        }
+
+def send_daily_reports():
+    """发送每日用电报告"""
+    print(f"[{now_cn().strftime('%Y-%m-%d %H:%M:%S')}] 开始发送每日用电报告...")
+    
+    for device in DEVICE_LIST:
+        device_id = device["id"]
+        device_name = device["name"]
+        send_key = device.get("server_chan_key")
+        
+        if not send_key:
+            print(f"设备 {device_name} 未配置Server酱SendKey，跳过")
+            continue
+            
+        # 获取昨日报告
+        report = get_yesterday_report(device_id, device_name)
+        
+        # 构造通知内容
+        title = f"⚡ {device_name} 昨日用电报告"
+        
+        if "error" in report:
+            desp = f"""
+## 📊 用电报告
+**设备名称：** {report['device_name']}  
+**日期：** {report['date']}  
+**状态：** 数据获取失败  
+**错误：** {report['error']}
+
+---
+*电表监控系统自动发送*
+"""
+        else:
+            # 用电量判断
+            usage = report['usage']
+            if isinstance(usage, (int, float)):
+                if usage > 10:
+                    usage_icon = "🔥"
+                    usage_desc = "用电较多"
+                elif usage > 5:
+                    usage_icon = "⚡"
+                    usage_desc = "正常用电"
+                elif usage > 0:
+                    usage_icon = "💡"
+                    usage_desc = "用电较少"
+                else:
+                    usage_icon = "💤"
+                    usage_desc = "几乎无用电"
+            else:
+                usage_icon = "❓"
+                usage_desc = "数据异常"
+                
+            desp = f"""
+## 📊 用电报告
+**设备名称：** {report['device_name']}  
+**日期：** {report['date']}  
+**用电量：** {usage_icon} {report['usage']} 度 ({usage_desc})  
+**期初余额：** {report['balance_start']} 度  
+**期末余额：** {report['balance_end']} 度  
+
+## 📈 用电分析
+- 昨日消耗了 **{report['usage']}** 度电
+- 剩余电量 **{report['balance_end']}** 度
+
+---
+*电表监控系统每日9点自动发送*
+"""
+        
+        # 发送通知
+        result = send_server_chan_notification(send_key, title, desp)
+        
+        if result["success"]:
+            print(f"✅ {device_name} 用电报告发送成功")
+        else:
+            print(f"❌ {device_name} 用电报告发送失败: {result['message']}")
+
 @app.route("/kpi")
 def kpi():
     device_id = request.args.get("device_id")
@@ -600,6 +744,60 @@ def fetch():
         return {"message":f"✅ 抓取成功：{data}"}
     return {"message":"❌ 抓取失败"}
 
+@app.route("/test_notification")
+def test_notification():
+    """测试通知功能"""
+    device_id = request.args.get("device_id")
+    
+    # 如果未指定设备，使用第一个设备
+    if not device_id:
+        if DEVICE_LIST:
+            device = DEVICE_LIST[0]
+        else:
+            return {"success": False, "message": "没有可用的设备"}
+    else:
+        device = next((d for d in DEVICE_LIST if d["id"] == device_id), None)
+        if not device:
+            return {"success": False, "message": f"设备 {device_id} 未找到"}
+    
+    device_id = device["id"]
+    device_name = device["name"]
+    send_key = device.get("server_chan_key")
+    
+    if not send_key:
+        return {"success": False, "message": f"设备 {device_name} 未配置Server酱SendKey"}
+    
+    # 获取昨日报告
+    report = get_yesterday_report(device_id, device_name)
+    
+    # 构造测试通知内容
+    title = f"🧪 {device_name} 通知测试"
+    desp = f"""
+## 📊 测试报告
+**设备名称：** {report['device_name']}  
+**日期：** {report['date']}  
+**用电量：** {report['usage']} 度  
+**期初余额：** {report['balance_start']} 度  
+**期末余额：** {report['balance_end']} 度  
+
+## ✅ 测试状态
+- 通知功能正常
+- 数据获取成功
+
+---
+*这是一条测试消息*
+"""
+    
+    # 发送通知
+    result = send_server_chan_notification(send_key, title, desp)
+    
+    return {
+        "success": result["success"],
+        "message": result["message"],
+        "device_name": device_name,
+        "report": report
+    }
+
 # -----------------------
 # 后台定时抓取
 # -----------------------
@@ -611,10 +809,23 @@ def scheduled_fetch():
 if __name__=="__main__":
     scheduler = BackgroundScheduler(timezone="Asia/Shanghai")
     interval_seconds = int(os.getenv("FETCH_INTERVAL_SECONDS", "300"))
+    
+    # 数据抓取任务
     scheduler.add_job(scheduled_fetch, 'interval', seconds=interval_seconds, id='fetch_job', max_instances=1, coalesce=True)
+    
+    # 每日9点发送用电报告
+    scheduler.add_job(send_daily_reports, 'cron', hour=9, minute=0, id='daily_report_job', max_instances=1, coalesce=True)
+    
     # 首次启动时，立即触发一次抓取，避免页面空白
     scheduler.add_job(scheduled_fetch, 'date', run_date=datetime.now() + timedelta(seconds=1), id='bootstrap_fetch', misfire_grace_time=60, coalesce=True)
+    
     scheduler.start()
+    
+    print(f"[{now_cn().strftime('%Y-%m-%d %H:%M:%S')}] 电表监控系统启动完成")
+    print(f"- 数据抓取间隔：{interval_seconds}秒")
+    print(f"- 每日报告时间：每天上午9:00")
+    print(f"- 配置的设备数量：{len(DEVICE_LIST)}")
+    
     try:
         app.run(host=os.getenv("HOST", "0.0.0.0"), port=int(os.getenv("PORT", "5000")), debug=os.getenv("FLASK_DEBUG", "false").lower()=="true")
     finally:
