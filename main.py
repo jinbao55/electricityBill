@@ -442,7 +442,7 @@ def send_server_chan_notification(send_key, title, desp=""):
     }
     
     try:
-        response = requests.post(url, data=data, timeout=10)
+        response = requests.post(url, data=data, timeout=10, verify=False)
         result = response.json()
         
         if result.get("code") == 0:
@@ -506,7 +506,7 @@ def send_daily_reports():
         report = get_yesterday_report(device_id, device_name)
         
         # 构造通知内容
-        title = f" 昨日用电: {report['usage']}"
+        title = f" 昨日用电: {report['usage']} 度"
         
         if "error" in report:
             desp = f"""
@@ -771,7 +771,7 @@ def test_notification():
     report = get_yesterday_report(device_id, device_name)
     
     # 构造测试通知内容
-    title = f"🧪 昨日用电：{report['usage']}"
+    title = f"🧪 昨日用电：{report['usage']} 度"
     desp = f"""
 ## 📊 测试报告
 **设备名称：** {report['device_name']}  
