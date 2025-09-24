@@ -506,19 +506,19 @@ def send_daily_reports():
         report = get_yesterday_report(device_id, device_name)
         
         # 构造通知内容
-        title = f"⚡ {device_name} 昨日用电报告"
+        title = f" 昨日用电: {report['usage']}"
         
         if "error" in report:
             desp = f"""
-## 📊 用电报告
-**设备名称：** {report['device_name']}  
-**日期：** {report['date']}  
-**状态：** 数据获取失败  
-**错误：** {report['error']}
+            ## 📊 用电报告
+            **设备名称：** {report['device_name']}  
+            **日期：** {report['date']}  
+            **状态：** 数据获取失败  
+            **错误：** {report['error']}
 
----
-*电表监控系统自动发送*
-"""
+        ---
+        *电表监控系统自动发送*
+        """
         else:
             # 用电量判断
             usage = report['usage']
@@ -771,7 +771,7 @@ def test_notification():
     report = get_yesterday_report(device_id, device_name)
     
     # 构造测试通知内容
-    title = f"🧪 {device_name} 通知测试"
+    title = f"🧪 昨日用电：{report['usage']}"
     desp = f"""
 ## 📊 测试报告
 **设备名称：** {report['device_name']}  
