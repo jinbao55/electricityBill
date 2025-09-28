@@ -29,12 +29,13 @@ DEVICE_LIST = [
         "id": "19101109825", 
         "name": "牛魔王",
         "server_chan_key": os.getenv("SERVER_CHAN_KEY_1", ""),  # Server酱的SendKey
-    },
-    {
-        "id": "19104791678", 
-        "name": "孙悟空",
-        "server_chan_key": os.getenv("SERVER_CHAN_KEY_2", ""),  # Server酱的SendKey
-    },
+    }
+    # ,
+    # {
+    #     "id": "19104791678",
+    #     "name": "孙悟空",
+    #     "server_chan_key": os.getenv("SERVER_CHAN_KEY_2", ""),  # Server酱的SendKey
+    # },
 ]
 
 # -----------------------
