@@ -18,7 +18,7 @@ This is an electricity meter monitoring and visualization system built with Flas
 
 - `main.py`: Main Flask application with data fetching, API endpoints, and scheduling logic
 - `templates/index.html`: Mobile-first frontend with Chart.js visualizations
-- `docker-compose.yml`: Multi-service container setup including Watchtower for auto-updates
+- `docker-compose.yml`: Compose configuration for the Flask service deployment
 - Database table: `electricity_balance` with meter readings and timestamps
 
 ## Development Commands

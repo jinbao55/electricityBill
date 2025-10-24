@@ -165,7 +165,6 @@ docker-compose down         # 停止服务
 ### CI/CD 流程
 - **代码推送** → GitHub Actions 自动构建镜像
 - **服务更新** → 运行 `./update.sh` 更新部署
-- **容器监控** → Watchtower 监控容器状态
 
 ### 定时任务
 - **数据抓取**：每5分钟自动抓取电表数据

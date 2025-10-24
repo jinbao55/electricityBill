@@ -114,17 +114,7 @@ show_status() {
     
     echo ""
     log_info "镜像信息："
-    docker images | grep -E "(electricity|watchtower)" || echo "未找到相关镜像"
-    
-    echo ""
-    log_info "Watchtower 监控状态："
-    if docker ps --format "table {{.Names}}\t{{.Status}}" | grep -q watchtower; then
-        log_success "Watchtower 正在运行"
-        docker exec watchtower-electricity watchtower --help > /dev/null 2>&1 && \
-            log_info "自动更新功能已启用" || log_warning "Watchtower 可能有问题"
-    else
-        log_warning "Watchtower 未运行"
-    fi
+    docker images | grep -E "electricity" || echo "未找到相关镜像"
 }
 
 # 主菜单
