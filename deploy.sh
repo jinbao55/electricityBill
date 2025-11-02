@@ -47,11 +47,9 @@ check_requirements() {
     fi
     
     if [ ! -f "$ENV_FILE" ]; then
-        log_warning "环境配置文件不存在，从模板创建..."
+        log_warning "环境配置文件不存在，自动从模板创建..."
         cp env.example "$ENV_FILE"
-        log_warning "请编辑 $ENV_FILE 文件配置数据库连接信息"
-        log_warning "然后重新运行: ./deploy.sh start"
-        exit 1
+        log_info "已创建默认配置 $ENV_FILE"
     fi
     
     log_success "环境检查通过"

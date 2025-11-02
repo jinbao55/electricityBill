@@ -1,4 +1,5 @@
 from flask import Flask, render_template, render_template_string, request, jsonify, g
+import json
 import os
 from dotenv import load_dotenv
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -9,34 +10,104 @@ from datetime import datetime, timedelta, timezone
 import threading
 import time
 from functools import lru_cache
+from html import unescape
 
 load_dotenv()
 
 # -----------------------
 # 配置区域
 # -----------------------
+def _require_env(key, *, cast=None, allow_empty=False, default=None):
+    """读取环境变量并执行必要的格式校验"""
+    value = os.getenv(key)
+    if value is None or (not allow_empty and value == ""):
+        if default is not None:
+            value = default
+        else:
+            raise RuntimeError(f"Missing required environment variable: {key}")
+    if cast:
+        try:
+            return cast(value)
+        except ValueError as exc:
+            raise RuntimeError(f"Invalid value for {key}: {value}") from exc
+    return value
+
+
+def _load_device_list():
+    """
+    从环境变量加载设备配置。
+    支持两种模式：
+      1. DEVICES_JSON：JSON 数组，每个对象可包含 server_chan_key 或 server_chan_key_env 字段
+      2. DEFAULT_DEVICE_ID / DEFAULT_DEVICE_NAME / DEFAULT_DEVICE_SERVER_CHAN_KEY：兼容旧配置
+    """
+    devices_json = os.getenv("DEVICES_JSON")
+    devices = []
+
+    if devices_json:
+        try:
+            raw_devices = json.loads(devices_json)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError("DEVICES_JSON must be valid JSON array") from exc
+
+        if not isinstance(raw_devices, list):
+            raise RuntimeError("DEVICES_JSON must decode to a JSON array")
+
+        for item in raw_devices:
+            if not isinstance(item, dict):
+                continue
+            device_id = item.get("id")
+            if not device_id:
+                continue
+
+            device_name = item.get("name") or str(device_id)
+            key_env = item.get("server_chan_key_env")
+            server_key = ""
+            if key_env:
+                server_key = os.getenv(key_env, "")
+            else:
+                server_key = item.get("server_chan_key", "") or ""
+
+            devices.append({
+                "id": str(device_id),
+                "name": device_name,
+                "server_chan_key": server_key,
+            })
+
+    default_device_id = os.getenv("DEFAULT_DEVICE_ID")
+    if not devices and default_device_id:
+        devices.append({
+            "id": default_device_id,
+            "name": os.getenv("DEFAULT_DEVICE_NAME", default_device_id),
+            "server_chan_key": os.getenv("DEFAULT_DEVICE_SERVER_CHAN_KEY", ""),
+        })
+
+    return devices
+
+
+def _cast_int_env(raw_value):
+    """将环境变量字符串转换为 int，支持内联注释"""
+    if raw_value is None:
+        raise ValueError("环境变量缺少整数值")
+    cleaned = raw_value.split("#", 1)[0].strip()
+    if not cleaned:
+        raise ValueError(f"环境变量值无效：{raw_value!r}")
+    return int(cleaned)
+
+
 DB_CONFIG = {
-    "host": os.getenv("DB_HOST", "134.175.53.82"),
-    "port": int(os.getenv("DB_PORT", "8806")),
-    "user": os.getenv("DB_USER", "root"),
-    "password": os.getenv("DB_PASSWORD", "klklKL889"),
-    "database": os.getenv("DB_NAME", "dev"),
-    "charset": os.getenv("DB_CHARSET", "utf8mb4")
+    "host": _require_env("DB_HOST"),
+    "port": _require_env("DB_PORT", cast=_cast_int_env),
+    "user": _require_env("DB_USER"),
+    "password": _require_env("DB_PASSWORD"),
+    "database": _require_env("DB_NAME"),
+    "charset": _require_env("DB_CHARSET"),
+    "autocommit": True,
+    "connect_timeout": _cast_int_env(os.getenv("DB_CONNECT_TIMEOUT", "5")),
+    "read_timeout": _cast_int_env(os.getenv("DB_READ_TIMEOUT", "10")),
+    "write_timeout": _cast_int_env(os.getenv("DB_WRITE_TIMEOUT", "10")),
 }
 
-DEVICE_LIST = [
-    {
-        "id": "19101109825", 
-        "name": "牛魔王",
-        "server_chan_key": os.getenv("SERVER_CHAN_KEY_1", ""),  # Server酱的SendKey
-    }
-    # ,
-    # {
-    #     "id": "19104791678",
-    #     "name": "孙悟空",
-    #     "server_chan_key": os.getenv("SERVER_CHAN_KEY_2", ""),  # Server酱的SendKey
-    # },
-]
+DEVICE_LIST = _load_device_list()
 
 # -----------------------
 # 时区工具（中国标准时间 UTC+8）
@@ -86,34 +157,103 @@ def get_cached_kpi(device_id, target_date, cache_key):
 def get_cache_key():
     """生成缓存键，5分钟更新一次"""
     return int(time.time() // 300)  # 5分钟缓存周期
+
+
+def _strip_tags(html_text):
+    """基础的 HTML 标签清理，用于宽松匹配文本内容"""
+    if not html_text:
+        return ""
+    return re.sub(r"<[^>]+>", " ", html_text)
+
+
+def _extract_first_number(text):
+    """从文本中提取第一个数字（含小数）"""
+    if not text:
+        return None
+    match = re.search(r"([0-9]+(?:\.[0-9]+)?)", text.replace(",", ""))
+    if match:
+        try:
+            return float(match.group(1))
+        except ValueError:
+            return None
+    return None
+
+
+def _parse_meter_page(html_text):
+    """解析电表页面 HTML，提取表号与剩余电量"""
+    normalized = unescape(html_text or "")
+    plain_text = None
+
+    # 先尝试通过 label id 精确匹配
+    meter_id_match = re.search(
+        r'id=["\']metid["\'][^>]*>([^<]+)', normalized, re.IGNORECASE | re.DOTALL
+    )
+    meter_id = meter_id_match.group(1).strip() if meter_id_match else None
+
+    # label 匹配可能失败，退回到纯文本匹配
+    if not meter_id:
+        plain_text = _strip_tags(normalized)
+        fallback_match = re.search(
+            r"(?:电表号|表号)\s*(?:[:：]|&#58;|&colon;)?\s*([0-9A-Za-z\-]+)",
+            plain_text,
+        )
+        if fallback_match:
+            meter_id = fallback_match.group(1).strip()
+
+    # 匹配剩余电量，优先使用 label
+    power_match = re.search(
+        r"剩余电量(?:[:：]|&#58;|&colon;)?</span>\s*<label[^>]*>([^<]+)</label>",
+        normalized,
+        re.IGNORECASE | re.DOTALL,
+    )
+    raw_power = power_match.group(1).strip() if power_match else None
+
+    if raw_power is None:
+        if plain_text is None:
+            plain_text = _strip_tags(normalized)
+        fallback_power = re.search(
+            r"剩余电量(?:[:：]|&#58;|&colon;)?[^0-9]*([0-9]+(?:\.[0-9]+)?)",
+            plain_text,
+        )
+        raw_power = fallback_power.group(1) if fallback_power else None
+
+    power = _extract_first_number(raw_power)
+
+    return meter_id, power
+
+
 def fetch_meter_data(device_id):
     url = f"http://www.wap.cnyiot.com/nat/pay.aspx?mid={device_id}"
     headers={"User-Agent":"Mozilla/5.0"}
     try:
         resp = requests.get(url, headers=headers, timeout=10)
-        resp.encoding = "utf-8"
+        resp.raise_for_status()
+        resp.encoding = resp.apparent_encoding or resp.encoding or "utf-8"
         html_text = resp.text
-    except:
+    except Exception as exc:
+        app.logger.warning("抓取设备 %s 页面失败: %s", device_id, exc)
         return None
 
-    meter_id_match = re.search(r'<label\s+id=["\']metid["\'][^>]*>(\d+)</label>', html_text)
-    meter_id = meter_id_match.group(1) if meter_id_match else None
+    meter_id, power = _parse_meter_page(html_text)
 
-    power_match = re.search(r'剩余电量:</span>\s*<label[^>]*>([\d.]+)</label>', html_text)
-    power = float(power_match.group(1)) if power_match else None
+    if not meter_id or power is None:
+        app.logger.warning(
+            "设备 %s 抓取成功但无法解析数据（meter_id=%s, remain=%s）",
+            device_id,
+            meter_id,
+            power,
+        )
+        return None
 
-    if not meter_id or power is None: return None
     return {"meter_no": meter_id, "remain": power, "collected_at": now_cn()}
 
 def save_to_db(data):
     conn = pymysql.connect(**DB_CONFIG)
-    cursor = conn.cursor()
     sql = "INSERT INTO electricity_balance (meter_no, remain, collected_at) VALUES (%s,%s,%s)"
     try:
-        cursor.execute(sql, (data["meter_no"], data["remain"], data["collected_at"]))
-        conn.commit()
+        with conn.cursor() as cursor:
+            cursor.execute(sql, (data["meter_no"], data["remain"], data["collected_at"]))
     finally:
-        cursor.close()
         conn.close()
 
 # -----------------------
@@ -738,7 +878,12 @@ def recharge_history():
 
 @app.route("/fetch")
 def fetch():
-    device_id = request.args.get("device_id","19101109825")
+    device_id = request.args.get("device_id")
+    if not device_id and DEVICE_LIST:
+        device_id = DEVICE_LIST[0]["id"]
+    if not device_id:
+        return {"message": "❌ 抓取失败：未配置可用设备"}
+
     data = fetch_meter_data(device_id)
     if data:
         save_to_db(data)
@@ -809,7 +954,7 @@ def scheduled_fetch():
 
 if __name__=="__main__":
     scheduler = BackgroundScheduler(timezone="Asia/Shanghai")
-    interval_seconds = int(os.getenv("FETCH_INTERVAL_SECONDS", "300"))
+    interval_seconds = _require_env("FETCH_INTERVAL_SECONDS", cast=_cast_int_env, default="300")
     
     # 数据抓取任务
     scheduler.add_job(scheduled_fetch, 'interval', seconds=interval_seconds, id='fetch_job', max_instances=1, coalesce=True)
@@ -828,6 +973,8 @@ if __name__=="__main__":
     print(f"- 配置的设备数量：{len(DEVICE_LIST)}")
     
     try:
-        app.run(host=os.getenv("HOST", "0.0.0.0"), port=int(os.getenv("PORT", "5000")), debug=os.getenv("FLASK_DEBUG", "false").lower()=="true")
+        port_env = os.getenv("PORT")
+        port = _cast_int_env(port_env) if port_env else 5000
+        app.run(host=os.getenv("HOST", "0.0.0.0"), port=port, debug=os.getenv("FLASK_DEBUG", "false").lower()=="true")
     finally:
         scheduler.shutdown(wait=False)

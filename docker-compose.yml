@@ -7,18 +7,17 @@ services:
       - "9136:5000"
     environment:
       - TZ=Asia/Shanghai
-      # 数据库配置（请根据实际情况修改）
-      - DB_HOST=${DB_HOST:-111.119.253.196}
-      - DB_PORT=${DB_PORT:-8806}
-      - DB_USER=${DB_USER:-root}
-      - DB_PASSWORD=${DB_PASSWORD:-123456}
-      - DB_NAME=${DB_NAME:-dev}
-      - DB_CHARSET=${DB_CHARSET:-utf8mb4}
-      # 应用配置
-      - FETCH_INTERVAL_SECONDS=${FETCH_INTERVAL_SECONDS:-300}
-      - HOST=0.0.0.0
-      - PORT=5000
-      - FLASK_DEBUG=${FLASK_DEBUG:-false}
+      # 所有应用相关配置均从 .env 读取
+      - DB_HOST=${DB_HOST}
+      - DB_PORT=${DB_PORT}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME}
+      - DB_CHARSET=${DB_CHARSET}
+      - FETCH_INTERVAL_SECONDS=${FETCH_INTERVAL_SECONDS}
+      - HOST=${HOST:-0.0.0.0}
+      - PORT=${PORT:-5000}
+      - FLASK_DEBUG=${FLASK_DEBUG}
     networks:
       - electricity-network
 
